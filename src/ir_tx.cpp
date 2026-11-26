@@ -6,7 +6,7 @@
 static bool s_irInited = false;
 static uint32_t s_curFreq = 38000;
 static bool s_rcToggle = false;
-static constexpr uint8_t IR_LEDC_CH = 6; // Avoid M5GFX LCD backlight channel 0
+static constexpr uint8_t IR_LEDC_CH = 2; // Timer 1; avoids M5GFX Light_PWM channel 7 (Timer 3)
 
 static void irSetCarrier(uint32_t freqHz) {
     if (!s_irInited || s_curFreq != freqHz) {
@@ -52,7 +52,6 @@ static inline void irSpace(uint32_t us) {
 void initIrTx() {
     pinMode(IR_TX_PIN, OUTPUT);
     digitalWrite(IR_TX_PIN, LOW);
-    irSetCarrier(38000);
 }
 
 static void sendPulseDistMsb(uint64_t data, uint8_t bits,
