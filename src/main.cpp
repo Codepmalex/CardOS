@@ -9,6 +9,7 @@
 #include "serial_ctl.h"
 #include "app_installer.h"
 #include "usb_msc_mode.h"
+#include "ir_tx.h"
 #include "ui.h"
 #include "apps/apps_registry.h"
 
@@ -114,6 +115,7 @@ bool openAppByName(const String& name) {
     if (q == "sysinfo" || q == "stats" || q == "system") { switchApp(APP_SYSINFO); return true; }
     if (q == "snake") { switchApp(APP_SNAKE); return true; }
     if (q == "flappy" || q == "bird") { switchApp(APP_FLAPPY); return true; }
+    if (q == "ir" || q == "irtv" || q == "tv" || q == "remote") { switchApp(APP_IRTV); return true; }
     return false;
 }
 
@@ -192,6 +194,7 @@ void setup() {
 
     M5Cardputer.Display.setRotation(g_settings.flipScreen ? 2 : 0);
     initHardware();
+    initIrTx();
     applyTimezoneConfig();
     initNetWeather();
 
@@ -212,6 +215,7 @@ void setup() {
     s_apps[APP_SYSINFO]   = createSysInfoApp();
     s_apps[APP_SNAKE]     = createSnakeApp();
     s_apps[APP_FLAPPY]    = createFlappyApp();
+    s_apps[APP_IRTV]      = createIrTvApp();
 
     // Pre-initialize Calendar & Notes counts for widgets/badges
     s_apps[APP_CALENDAR]->onEnter();

@@ -16,6 +16,7 @@ constexpr int SD_CS_PIN   = 12;
 constexpr int LED_PIN     = 21;
 // Note: GPIO 38 is LCD backlight_gpio (M5GFX Light_PWM); never override with pinMode/digitalWrite
 constexpr int BTN_G0_PIN  = 0;
+constexpr int IR_TX_PIN   = 44;
 
 // App IDs
 enum AppId : uint8_t {
@@ -36,6 +37,7 @@ enum AppId : uint8_t {
     APP_SYSINFO,
     APP_SNAKE,
     APP_FLAPPY,
+    APP_IRTV,
     APP_COUNT
 };
 
@@ -73,7 +75,7 @@ enum NotifApp : uint8_t {
 };
 
 constexpr int MAX_MINER_WORKERS = 6;
-constexpr int MAX_SAVED_WIFIS   = 6;
+constexpr int MAX_SAVED_WIFIS   = 20;
 constexpr int MAX_STORE_CATALOG = 12;
 
 enum HomeWidget : uint8_t {

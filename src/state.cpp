@@ -38,7 +38,8 @@ static const AppKeyPair APP_KEYS[] = {
     {APP_MINER,     "miner"},
     {APP_SYSINFO,   "sysinfo"},
     {APP_SNAKE,     "snake"},
-    {APP_FLAPPY,    "flappy"}
+    {APP_FLAPPY,    "flappy"},
+    {APP_IRTV,      "irtv"}
 };
 static constexpr int APP_KEYS_COUNT = sizeof(APP_KEYS) / sizeof(APP_KEYS[0]);
 
@@ -122,7 +123,7 @@ bool removeSavedWifi(const char* ssid) {
 }
 
 bool isStoreAppKey(const String& key) {
-    return key == "weather" || key == "miner" || key == "flappy";
+    return key == "weather" || key == "miner" || key == "flappy" || key == "irtv";
 }
 
 bool isStoreAppInstalled(const String& key) {
@@ -376,8 +377,9 @@ void loadSettings() {
     String mw = prefs.getString("mWal", "");
     strlcpy(g_settings.minerCoin, mc.c_str(), sizeof(g_settings.minerCoin));
     strlcpy(g_settings.minerWallet, mw.c_str(), sizeof(g_settings.minerWallet));
-    if (prefs.getBytesLength("sWifis") == sizeof(g_settings.savedWifis)) {
-        prefs.getBytes("sWifis", g_settings.savedWifis, sizeof(g_settings.savedWifis));
+    size_t swLen = prefs.getBytesLength("sWifis");
+    if (swLen > 0 && swLen <= sizeof(g_settings.savedWifis) && (swLen % sizeof(SavedWifi)) == 0) {
+        prefs.getBytes("sWifis", g_settings.savedWifis, swLen);
     }
     if (strlen(g_settings.wifiSsid) > 0 && findSavedWifiPass(g_settings.wifiSsid) == nullptr) {
         upsertSavedWifi(g_settings.wifiSsid, g_settings.wifiPass);
@@ -403,7 +405,7 @@ void syncSettingsWithStorage() {
         saveSettingsToFile();
         return;
     }
-    String raw = readTextFile(SETTINGS_FILE, 8192);
+    String raw = readTextFile(SETTINGS_FILE, 12288);
     if (raw.isEmpty()) return;
     JsonDocument doc;
     if (deserializeJson(doc, raw) != DeserializationError::Ok) return;

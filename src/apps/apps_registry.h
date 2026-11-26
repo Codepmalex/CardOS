@@ -18,6 +18,7 @@ App* createMinerApp();
 App* createSysInfoApp();
 App* createSnakeApp();
 App* createFlappyApp();
+App* createIrTvApp();
 
 // Shared helper to install & boot a .bin app with live UI progress
 bool installAndBootBinInteractive(const String& path, const String& displayName);

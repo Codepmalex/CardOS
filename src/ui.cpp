@@ -335,6 +335,15 @@ void drawAppIcon(M5Canvas& spr, int cx, int cy, AppId id, uint16_t color, bool i
             spr.fillTriangle(cx + 3, cy - 1, cx + 7, cy + 1, cx + 3, cy + 2, rgb565(251, 146, 60));
             spr.drawFastHLine(cx - 6, cy, 4, rgb565(250, 204, 21));
             break;
+        case APP_IRTV:
+            // Remote control body + IR wave arcs
+            spr.drawRoundRect(cx - 5, cy - 2, 10, 10, 2, color);
+            spr.fillCircle(cx, cy + 1, 1, rgb565(248, 113, 113));
+            spr.fillCircle(cx - 2, cy + 5, 1, color);
+            spr.fillCircle(cx + 2, cy + 5, 1, color);
+            spr.drawArc(cx, cy - 3, 4, 4, 225, 315, rgb565(56, 189, 248));
+            spr.drawArc(cx, cy - 3, 7, 7, 225, 315, rgb565(56, 189, 248));
+            break;
         default:
             spr.drawCircle(cx, cy, 6, color);
             break;

@@ -133,7 +133,7 @@ private:
         httpCodeOut = 0;
         HTTPClient http;
         http.setConnectTimeout(4500);
-        http.setTimeout(7000);
+        http.setTimeout(10000);
         if (url.startsWith("https://")) {
             WiFiClientSecure sec;
             sec.setInsecure();
