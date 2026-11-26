@@ -1,6 +1,7 @@
 #include "net_weather.h"
 #include "state.h"
 #include "hardware.h"
+#include "storage.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -10,6 +11,7 @@
 static volatile bool s_reqWifiConnect = false;
 static volatile bool s_reqWeatherRefresh = false;
 static volatile bool s_reqMinerRefresh = false;
+static volatile bool s_reqUpdateCheck = false;
 static volatile bool s_reqWifiScan = false;
 static volatile bool s_wifiScanning = false;
 static volatile uint32_t s_wifiScanSeq = 0;
@@ -443,6 +445,96 @@ static void pollKryptexPool() {
     }
 }
 
+static int compareSemVerStr(const String& a, const String& b) {
+    int pa[3] = {0, 0, 0}, pb[3] = {0, 0, 0};
+    auto parse = [](const String& s, int out[3]) {
+        int idx = 0, cur = 0;
+        for (size_t i = 0; i < s.length() && idx < 3; ++i) {
+            char c = s[i];
+            if (c >= '0' && c <= '9') cur = cur * 10 + (c - '0');
+            else if (c == '.') { out[idx++] = cur; cur = 0; }
+        }
+        if (idx < 3) out[idx] = cur;
+    };
+    parse(a, pa); parse(b, pb);
+    for (int i = 0; i < 3; ++i) {
+        if (pa[i] != pb[i]) return (pa[i] > pb[i]) ? 1 : -1;
+    }
+    return 0;
+}
+
+static void checkSoftwareAndAppUpdates() {
+    if (WiFi.status() != WL_CONNECTED || ESP.getFreeHeap() < 75000) return;
+
+    String url = String(g_settings.storeUrl);
+    int p = url.indexOf("/store/");
+    String base = (p > 8) ? url.substring(0, p) : "https://raw.githubusercontent.com/Codepmalex/CardOS/main";
+
+    bool osNew = false;
+    String osVer;
+    {
+        WiFiClientSecure client;
+        client.setInsecure();
+        HTTPClient http;
+        http.setTimeout(8000);
+        if (http.begin(client, base + "/store/os_version.json")) {
+            if (http.GET() == 200) {
+                JsonDocument doc;
+                if (deserializeJson(doc, http.getString()) == DeserializationError::Ok) {
+                    osVer = String(doc["version"] | "");
+                    if (!osVer.isEmpty()) {
+                        strlcpy(g_sys.latestOsVer, osVer.c_str(), sizeof(g_sys.latestOsVer));
+                        if (compareSemVerStr(osVer, CARDOS_VERSION) > 0) osNew = true;
+                    }
+                }
+            }
+            http.end();
+        }
+    }
+
+    int appUpdCount = 0;
+    {
+        WiFiClientSecure client;
+        client.setInsecure();
+        HTTPClient http;
+        http.setTimeout(9000);
+        if (http.begin(client, g_settings.storeUrl)) {
+            if (http.GET() == 200) {
+                JsonDocument doc;
+                if (deserializeJson(doc, http.getString()) == DeserializationError::Ok) {
+                    for (JsonObject a : doc["apps"].as<JsonArray>()) {
+                        String id = String(a["id"] | "");
+                        String rVer = String(a["version"] | "");
+                        if (id.isEmpty() || rVer.isEmpty()) continue;
+                        if (!isStoreAppInstalled(id) && id != "music") continue;
+                        String lVer;
+                        String pkg = "/store/" + id + ".json";
+                        if ((g_sys.sdMounted || g_sys.spiffsMounted) && activeFS().exists(pkg.c_str())) {
+                            JsonDocument ld;
+                            if (deserializeJson(ld, readTextFile(pkg.c_str(), 2048)) == DeserializationError::Ok) {
+                                lVer = String(ld["version"] | "");
+                            }
+                        } else if (id == "music") {
+                            lVer = CARDOS_VERSION;
+                        }
+                        if (lVer.isEmpty() || compareSemVerStr(rVer, lVer) > 0) appUpdCount++;
+                    }
+                }
+            }
+            http.end();
+        }
+    }
+    g_sys.pendingAppUpdates = appUpdCount;
+
+    if (osNew && appUpdCount > 0) {
+        triggerNotification(NOTIF_UPDATES, ("OS v" + osVer + " & " + String(appUpdCount) + " app upd!").c_str());
+    } else if (osNew) {
+        triggerNotification(NOTIF_UPDATES, ("CardOS v" + osVer + " available!").c_str());
+    } else if (appUpdCount > 0) {
+        triggerNotification(NOTIF_UPDATES, (String(appUpdCount) + " app update(s) ready!").c_str());
+    }
+}
+
 static void netWorkerTask(void* param) {
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
@@ -455,6 +547,7 @@ static void netWorkerTask(void* param) {
     uint32_t lastNtpCheckMs = 0;
     uint32_t lastMinerPollMs = 0;
     uint32_t lastRoamScanMs = 0;
+    uint32_t lastUpdateCheckMs = 0;
     bool trySavedRoam = false;
 
     while (true) {
@@ -505,6 +598,7 @@ static void netWorkerTask(void* param) {
             if (justConnected) {
                 applyTimezoneConfig();
                 s_reqWeatherRefresh = true;
+                s_reqUpdateCheck = true;
                 triggerNotification(NOTIF_SYSTEM, "Wi-Fi Connected");
             }
         } else {
@@ -553,8 +647,9 @@ static void netWorkerTask(void* param) {
             }
         }
 
-        // Auto-refresh weather (pause background TLS while Lua / Store active to avoid heap contention)
-        bool busyTls = (g_sys.activeApp == APP_LUA_RUNNER || g_sys.activeApp == APP_STORE);
+        // Auto-refresh weather (pause background TLS while Lua / Store / Phone / Recorder active)
+        bool busyTls = (g_sys.activeApp == APP_LUA_RUNNER || g_sys.activeApp == APP_STORE ||
+                        g_sys.activeApp == APP_PHONE || g_sys.activeApp == APP_RECORDER);
         uint32_t mult = g_settings.lowPowerMode ? 2UL : 1UL;
         uint32_t refreshMs = max((uint32_t)5, (uint32_t)g_settings.weatherRefreshMin) * 60000UL * mult;
         bool due = g_sys.wifiConnected && !busyTls &&
@@ -573,6 +668,14 @@ static void netWorkerTask(void* param) {
             s_reqMinerRefresh = false;
             lastMinerPollMs = now;
             pollKryptexPool();
+        }
+
+        // Check GitHub OS & Store updates on connect/boot and every 24h
+        if (g_sys.wifiConnected && !busyTls &&
+            (s_reqUpdateCheck || (lastUpdateCheckMs > 0 && (now - lastUpdateCheckMs >= 86400000UL)))) {
+            s_reqUpdateCheck = false;
+            lastUpdateCheckMs = now;
+            checkSoftwareAndAppUpdates();
         }
 
         vTaskDelay(pdMS_TO_TICKS(250));

@@ -1,21 +1,18 @@
-# CardOS for M5Stack Cardputer ADV
+# CardOS (M5Stack Cardputer ADV)
 
-A custom, feature-rich OS for the **M5Stack Cardputer ADV** (ESP32-S3FN8) built with Arduino + PlatformIO.
+A sleek, custom standalone OS for the **M5Stack Cardputer ADV** featuring a multi-page app launcher, Wi-Fi Over-the-Air updates, GitHub App Store (30+ Lua apps & games), MP3 Music Player + Phone Stream, Voice Recorder, Phone Link, MacLink AP wireless compute bridge, Shell, and hardware RGB notification customization.
 
-## Included Features
-- **Home Screen & Search:** Live clock, customizable Home Widgets (`SysInfo`, `Weather`, `Miner`, `Calendar`, `Notes`, `Snake`, `Flappy`, `Off`), global file/app search (`Tab`), and reorderable app grid (`[` / `]`).
-- **Stock Apps:** Notes (SD text editor with save prompt), Calendar (JSON events), Calculator, Gyro/Compass (BMI270 IMU), Unit Converter, Folders Explorer, USB Mass Storage (in-place USB drive mode), Wi-Fi Setup (multi-network auto-connect), SysInfo, Snake, Sleep Mode (silent charging), Settings (with World Timezone Map, Per-App Notifications, Screensaver, Low Battery ECO Mode, Themes & Animated Dropdowns).
-- **GitHub App Store (`store/catalog.json`):** Download categorized apps directly onto your Home screen over Wi-Fi, or boot third-party `.bin` firmwares from `/apps/` on SD via the **Other Apps** tab (`app1` OTA partition).
+## Built-in Apps
+- **Home** (`[`/`]`, `-`/`=`, or `\` Move Mode, Search bar, live Widgets)
+- **Music** (`/music/<playlist>/` MP3s, All Songs, Shuffle, Speaker/3.5mm AUX auto-switch, Wi-Fi Phone Stream on `:8080`)
+- **Voice** (`M5Cardputer.Mic` 16 kHz WAV recorder & playback in `/recordings/`)
+- **Phone** (BLE `"CardOS-Phone"` + Wi-Fi `:8081` for Texts, Call Alerts, Notifications & Quick Replies)
+- **MacLink** (Create `CardOS-AP` Wi-Fi hotspot & run wireless compute/shell/media control on Mac via `tools/cardos_mac_bridge.py`)
+- **Shell** (On-device CLI + `@mac <cmd>` wireless Mac execution)
+- **Notes**, **Calendar**, **Folders**, **Calculator**, **Gyro/Compass**, **Converter**, **Weather**, **Kryptex Miner**, **System Info**, **USB Disk**, **App Store** (with `[I]` Full Info modal, Updates tab & Auto-Update), **Settings**, **Sleep**, **Snake**, **Flappy**.
 
-## Building & Flashing
-1. Install [PlatformIO Core](https://platformio.org/).
-2. Build and flash from the `CardOS/` directory:
-   ```bash
-   pio run -t upload
-   ```
-3. To enable the dual-boot `app0` (CardOS) / `app1` (`.bin` app) flow on RST, flash `bootloader_cardos.bin` at `0x0` and `partitions.csv` at `0x8000`.
+## Developer Documentation
+Want to create your own Lua apps or native C++ apps for CardOS? Read **[DEVELOPERS.md](./DEVELOPERS.md)** for the full step-by-step guide and `cardos.*` API reference!
 
-## Adding Apps to the Store
-To add downloadable app packages in your fork or PR:
-1. Add an entry in `store/catalog.json` under `"apps"` with `id`, `name`, `category`, `version`, `desc`, and `pkg`.
-2. Add a matching manifest file in `store/apps/<id>.json` and implement your `App` class inside `src/apps/`.
+## Updating CardOS
+Once flashed, connect to Wi-Fi with an SD card inserted and go to **Settings → System → Software Update**. CardOS automatically checks GitHub for OS and App Store updates on boot/Wi-Fi connect and every 24 hours.

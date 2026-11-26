@@ -48,7 +48,7 @@ struct Settings {
 
     // RGB LED
     bool ledEnabled = true;
-    uint8_t ledMode = LED_BATTERY;
+    uint8_t ledMode = LED_NOTIFY;
     uint32_t ledColor = 0x38BDF8;    // RGB888
     uint8_t ledBrightness = 40;      // 5..255
 
@@ -81,11 +81,12 @@ struct Settings {
     char minerCoin[16] = "xtm-rx";
     char minerWallet[128] = "";
 
-    // Games & GitHub App Store
+    // Games, App Store & MacLink
     uint16_t snakeHighScore = 0;
     uint16_t flappyHighScore = 0;
     bool autoUpdateApps = false;
     char storeUrl[128] = "https://raw.githubusercontent.com/Codepmalex/CardOS/main/store/catalog.json";
+    char macBridgeIp[32] = "192.168.4.2";
 
     // Installed third-party app tracking (in app1 partition)
     char installedBinName[64] = "";
@@ -94,10 +95,12 @@ struct Settings {
     Settings() {
         // Sensible per-app defaults
         notifRules[NOTIF_CALENDAR] = NotifRule(true, 160, 0, true, 0, 0); // Sky, Chime, Pulse
-        notifRules[NOTIF_WEATHER]  = NotifRule(true, 180, 1, true, 1, 1); // Mint, Double, Fast
-        notifRules[NOTIF_BATTERY]  = NotifRule(true, 200, 2, true, 3, 1); // Rose, Alert, Fast
+        notifRules[NOTIF_WEATHER]  = NotifRule(true, 180, 1, true, 1, 2); // Mint, Double, Fast
+        notifRules[NOTIF_BATTERY]  = NotifRule(true, 200, 2, true, 3, 2); // Rose, Alert, Fast
         notifRules[NOTIF_SYSTEM]   = NotifRule(true, 120, 3, true, 4, 0); // Violet, Soft, Pulse
-        notifRules[NOTIF_MINER]    = NotifRule(true, 180, 1, true, 5, 1); // Gold, Double, Fast
+        notifRules[NOTIF_MINER]    = NotifRule(true, 180, 1, true, 5, 1); // Gold, Double, Blink
+        notifRules[NOTIF_UPDATES]  = NotifRule(true, 160, 0, true, 0, 0); // Sky, Chime, Pulse
+        notifRules[NOTIF_PHONE]    = NotifRule(true, 190, 1, true, 1, 1); // Mint, Double, Blink
     }
 };
 
@@ -219,6 +222,8 @@ struct SystemState {
     bool lowBattNotified = false;
     bool weatherNotified = false;
     bool rainNotified = false;
+    char latestOsVer[16] = "";
+    int pendingAppUpdates = 0;
 
 struct MusicLiveState {
     bool playing = false;

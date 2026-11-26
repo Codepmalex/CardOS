@@ -40,7 +40,10 @@ static const AppKeyPair APP_KEYS[] = {
     {APP_SNAKE,     "snake"},
     {APP_FLAPPY,    "flappy"},
     {APP_MUSIC,     "music"},
-    {APP_FEEDBACK,  "feedback"}
+    {APP_RECORDER,  "voice"},
+    {APP_PHONE,     "phone"},
+    {APP_MACLINK,   "maclink"},
+    {APP_TERMINAL,  "shell"}
 };
 static constexpr int APP_KEYS_COUNT = sizeof(APP_KEYS) / sizeof(APP_KEYS[0]);
 
@@ -289,6 +292,7 @@ static void saveSettingsToNvs() {
     prefs.putUShort("flpHi", g_settings.flappyHighScore);
     prefs.putBool("autoUpd", g_settings.autoUpdateApps);
     prefs.putString("stUrl", g_settings.storeUrl);
+    prefs.putString("macIp", g_settings.macBridgeIp);
 
     prefs.putString("instBin", g_settings.installedBinName);
     prefs.putUInt("instSz", g_settings.installedBinSize);
@@ -350,6 +354,7 @@ static void saveSettingsToFile() {
     doc["flappyHigh"] = g_settings.flappyHighScore;
     doc["autoUpdate"] = g_settings.autoUpdateApps;
     doc["storeUrl"] = g_settings.storeUrl;
+    doc["macBridgeIp"] = g_settings.macBridgeIp;
 
     JsonArray sw = doc["savedWifis"].to<JsonArray>();
     for (int i = 0; i < MAX_SAVED_WIFIS; ++i) {
@@ -387,7 +392,7 @@ void loadSettings() {
     g_settings.volume            = prefs.getUChar("vol", 90);
     g_settings.deviceProfile     = prefs.getUChar("prof", PROF_SILENT) % PROF_COUNT;
     g_settings.ledEnabled        = prefs.getBool("ledOn", true);
-    g_settings.ledMode           = prefs.getUChar("ledMode", LED_BATTERY) % LED_MODE_COUNT;
+    g_settings.ledMode           = prefs.getUChar("ledMode", LED_NOTIFY) % LED_MODE_COUNT;
     g_settings.ledColor          = prefs.getUInt("ledCol", 0x38BDF8);
     g_settings.ledBrightness     = prefs.getUChar("ledBr", 40);
 
@@ -413,8 +418,9 @@ void loadSettings() {
     g_settings.notifSound        = prefs.getBool("nSnd", true);
     g_settings.notifLed          = prefs.getBool("nLed", true);
     g_settings.rainAlertPct      = prefs.getUChar("rainPct", 50);
-    if (prefs.getBytesLength("nRules") == sizeof(g_settings.notifRules)) {
-        prefs.getBytes("nRules", g_settings.notifRules, sizeof(g_settings.notifRules));
+    size_t nrLen = prefs.getBytesLength("nRules");
+    if (nrLen > 0 && nrLen <= sizeof(g_settings.notifRules) && (nrLen % sizeof(NotifRule)) == 0) {
+        prefs.getBytes("nRules", g_settings.notifRules, nrLen);
     }
     String mc = prefs.getString("mCoin", "xtm-rx");
     String mw = prefs.getString("mWal", "");
@@ -435,6 +441,8 @@ void loadSettings() {
         stUrl = "https://raw.githubusercontent.com/Codepmalex/CardOS/main/store/catalog.json";
     }
     strlcpy(g_settings.storeUrl, stUrl.c_str(), sizeof(g_settings.storeUrl));
+    String mIp = prefs.getString("macIp", "192.168.4.2");
+    strlcpy(g_settings.macBridgeIp, mIp.c_str(), sizeof(g_settings.macBridgeIp));
 
     String instName = prefs.getString("instBin", "");
     strlcpy(g_settings.installedBinName, instName.c_str(), sizeof(g_settings.installedBinName));
@@ -499,7 +507,7 @@ void syncSettingsWithStorage() {
             if (r["tone"].is<int>())  g_settings.notifRules[i].toneIdx = r["tone"].as<int>() % 4;
             if (r["led"].is<bool>())  g_settings.notifRules[i].ledEnabled = r["led"].as<bool>();
             if (r["col"].is<int>())   g_settings.notifRules[i].ledColorIdx = r["col"].as<int>() % 7;
-            if (r["pat"].is<int>())   g_settings.notifRules[i].ledPattern = r["pat"].as<int>() % 3;
+            if (r["pat"].is<int>())   g_settings.notifRules[i].ledPattern = r["pat"].as<int>() % 4;
         }
     }
 
@@ -514,6 +522,9 @@ void syncSettingsWithStorage() {
             u = "https://raw.githubusercontent.com/Codepmalex/CardOS/main/store/catalog.json";
         }
         strlcpy(g_settings.storeUrl, u.c_str(), sizeof(g_settings.storeUrl));
+    }
+    if (doc["macBridgeIp"].is<const char*>()) {
+        strlcpy(g_settings.macBridgeIp, doc["macBridgeIp"].as<const char*>(), sizeof(g_settings.macBridgeIp));
     }
 
     if (doc["savedWifis"].is<JsonArray>()) {

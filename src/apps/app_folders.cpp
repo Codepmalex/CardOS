@@ -73,6 +73,14 @@ public:
             return;
         }
 
+        if (m_infoModal) {
+            if (isNavUp(ev) && m_infoScroll > 0) m_infoScroll--;
+            else if (isNavDown(ev) && m_infoScroll < max(0, m_infoLines - 8)) m_infoScroll++;
+            else if (isNavBack(ev) || ev.code == CK_ENTER || (ev.code == CK_CHAR && (ev.ch == 'i' || ev.ch == 'I'))) {
+                m_infoModal = false;
+            }
+            return;
+        }
         if (isNavBack(ev)) {
             if (m_cwd != "/") {
                 goUp();
@@ -95,6 +103,13 @@ public:
         } else if (ev.code == CK_CHAR && (ev.ch == 'n' || ev.ch == 'N')) {
             m_newDirName = "";
             m_creatingDir = true;
+        } else if (ev.code == CK_CHAR && (ev.ch == 'i' || ev.ch == 'I') && !m_entries.empty()) {
+            const auto& e = m_entries[m_sel];
+            m_infoTitle = e.isDir ? "Folder Info" : "File Info";
+            m_infoBody = "Name: " + e.name + "\nPath: " + e.path + "\nType: "
+                       + (e.isDir ? "Directory" : formatBytes(e.size));
+            m_infoScroll = 0;
+            m_infoModal = true;
         } else if (ev.code == CK_CHAR && (ev.ch == 'd' || ev.ch == 'D')) {
             if (m_sel >= 0 && m_sel < (int)m_entries.size() && m_entries[m_sel].name != "..") {
                 m_confirmDel = true;
@@ -146,9 +161,9 @@ public:
         spr.setTextColor(th.textDim);
         char foot[48];
         if (g_sys.sdMounted) {
-            snprintf(foot, sizeof(foot), "[N]Dir [D]Del  Free:%luMB", (unsigned long)g_sys.sdFreeMB);
+            snprintf(foot, sizeof(foot), "[N]Dir [I]Info [D]Del %luMB", (unsigned long)g_sys.sdFreeMB);
         } else {
-            snprintf(foot, sizeof(foot), "[N]Dir [D]Del  (SPIFFS Mode)");
+            snprintf(foot, sizeof(foot), "[N]Dir [I]Info [D]Del (SPIFFS)");
         }
         spr.drawString(foot, 6, SCREEN_H - 12);
 
@@ -169,9 +184,17 @@ public:
         }
 
         ui::drawToastOverlay(spr);
+        if (m_infoModal) {
+            ui::drawTextModal(spr, m_infoTitle.c_str(), m_infoBody, m_infoScroll, &m_infoLines);
+        }
     }
 
 private:
+    bool m_infoModal = false;
+    String m_infoTitle;
+    String m_infoBody;
+    int m_infoScroll = 0;
+    int m_infoLines = 0;
     String m_cwd = "/";
     std::vector<FileEntry> m_entries;
     int m_sel = 0;

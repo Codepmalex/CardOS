@@ -5,7 +5,6 @@
 #include "../hardware.h"
 #include "../net_weather.h"
 #include "../app_installer.h"
-#include "../bug_report.h"
 #include <time.h>
 #include <vector>
 
@@ -416,7 +415,7 @@ private:
             return true;
         }
         if (ruleIdx == 5) {
-            for (int i = 0; i < 3; ++i) { opts.push_back(NOTIF_LED_PAT_NAMES[i]); vals.push_back(i); }
+            for (int i = 0; i < 4; ++i) { opts.push_back(NOTIF_LED_PAT_NAMES[i]); vals.push_back(i); }
             beginDropdown("LED Pattern", opts, vals, r.ledPattern, CAT_NOTIF, ruleIdx, true);
             return true;
         }
@@ -428,7 +427,7 @@ private:
             auto& r = g_settings.notifRules[m_notifAppIdx];
             if (m_ddIdx == 2) r.toneIdx = (uint8_t)(val % 4);
             else if (m_ddIdx == 4) r.ledColorIdx = (uint8_t)(val % 7);
-            else if (m_ddIdx == 5) r.ledPattern = (uint8_t)(val % 3);
+            else if (m_ddIdx == 5) r.ledPattern = (uint8_t)(val % 4);
         } else {
             if (m_ddCat == CAT_APPEARANCE) {
                 if (m_ddIdx == 0) g_settings.themeIdx = (uint8_t)(val % THEME_COUNT);
@@ -544,7 +543,7 @@ private:
             case 2: r.toneIdx = (r.toneIdx + d + 4) % 4; break;
             case 3: r.ledEnabled = !r.ledEnabled; break;
             case 4: r.ledColorIdx = (r.ledColorIdx + d + 7) % 7; break;
-            case 5: r.ledPattern = (r.ledPattern + d + 3) % 3; break;
+            case 5: r.ledPattern = (r.ledPattern + d + 4) % 4; break;
             case 6:
                 if (d > 0) {
                     saveSettings();
@@ -570,7 +569,7 @@ private:
             String(NOTIF_TONE_NAMES[r.toneIdx % 4]) + " v",
             r.ledEnabled ? "ON" : "OFF",
             String(LED_COLOR_NAMES[r.ledColorIdx % 7]) + " v",
-            String(NOTIF_LED_PAT_NAMES[r.ledPattern % 3]) + " v",
+            String(NOTIF_LED_PAT_NAMES[r.ledPattern % 4]) + " v",
             "[Enter]"
         };
 
@@ -717,8 +716,8 @@ private:
             case CAT_LED:           return 4;
             case CAT_WIFI:          return 4;
             case CAT_TIME_WEATHER:  return 5;
-            case CAT_NOTIF:         return 8;
-            case CAT_SYSTEM:        return 9;
+            case CAT_NOTIF:         return 10;
+            case CAT_SYSTEM:        return 8;
             default:                return 0;
         }
     }
@@ -778,7 +777,9 @@ private:
                 else if (idx == 4) { lbl = "Weather / Rain"; val = g_settings.notifRules[NOTIF_WEATHER].enabled ? "ON >" : "OFF >"; }
                 else if (idx == 5) { lbl = "Battery Alerts"; val = g_settings.notifRules[NOTIF_BATTERY].enabled ? "ON >" : "OFF >"; }
                 else if (idx == 6) { lbl = "System Alerts"; val = g_settings.notifRules[NOTIF_SYSTEM].enabled ? "ON >" : "OFF >"; }
-                else               { lbl = "Miner Alerts"; val = g_settings.notifRules[NOTIF_MINER].enabled ? "ON >" : "OFF >"; }
+                else if (idx == 7) { lbl = "Miner Alerts"; val = g_settings.notifRules[NOTIF_MINER].enabled ? "ON >" : "OFF >"; }
+                else if (idx == 8) { lbl = "Update Alerts"; val = g_settings.notifRules[NOTIF_UPDATES].enabled ? "ON >" : "OFF >"; }
+                else               { lbl = "Phone Alerts"; val = g_settings.notifRules[NOTIF_PHONE].enabled ? "ON >" : "OFF >"; }
                 break;
             case CAT_SYSTEM:
                 if (idx == 0)      { lbl = "Low Batt Mode"; val = g_settings.lowPowerMode ? "ON (ECO)" : "OFF"; }
@@ -787,8 +788,7 @@ private:
                 else if (idx == 3) { lbl = "App1 Slot"; val = strlen(g_settings.installedBinName) ? "Loaded" : "Empty"; }
                 else if (idx == 4) { lbl = "Boot App1 Now"; val = "[Enter]"; }
                 else if (idx == 5) { lbl = "Software Update"; val = String("v") + CARDOS_VERSION + " [Ent]"; }
-                else if (idx == 6) { lbl = "Test Bug Report"; val = "[Enter]"; }
-                else if (idx == 7) { lbl = "Factory Reset"; val = "[Enter]"; }
+                else if (idx == 6) { lbl = "Factory Reset"; val = "[Enter]"; }
                 else               { lbl = "Reboot CardOS"; val = "[Enter]"; }
                 break;
             default: break;
@@ -930,13 +930,10 @@ private:
                     runGithubOsUpdateInteractive();
                     return;
                 } else if (idx == 6 && d > 0) {
-                    triggerOsError("System Test", "Manual test bug report from Settings");
-                    return;
-                } else if (idx == 7 && d > 0) {
                     factoryResetSettings();
                     applyPowerProfile();
                     showToast("Settings reset!", 1500);
-                } else if (idx == 8 && d > 0) {
+                } else if (idx == 7 && d > 0) {
                     saveWeatherAndTimeCache();
                     delay(40);
                     rebootToCardOS();

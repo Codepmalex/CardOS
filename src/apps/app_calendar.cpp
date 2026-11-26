@@ -67,6 +67,14 @@ public:
             return;
         }
 
+        if (m_infoModal) {
+            if (isNavUp(ev) && m_infoScroll > 0) m_infoScroll--;
+            else if (isNavDown(ev) && m_infoScroll < max(0, m_infoLines - 8)) m_infoScroll++;
+            else if (isNavBack(ev) || ev.code == CK_ENTER || (ev.code == CK_CHAR && (ev.ch == 'i' || ev.ch == 'I'))) {
+                m_infoModal = false;
+            }
+            return;
+        }
         if (isNavBack(ev)) { switchApp(APP_HOME); return; }
 
         int maxD = daysInMonth(m_year, m_month);
@@ -87,6 +95,16 @@ public:
         } else if (ev.code == CK_CHAR && (ev.ch == 'a' || ev.ch == 'A' || ev.ch == 'n' || ev.ch == 'N') || ev.code == CK_ENTER) {
             m_newTitle = "";
             m_adding = true;
+        } else if (ev.code == CK_CHAR && (ev.ch == 'i' || ev.ch == 'I')) {
+            String key = fmtDate(m_year, m_month, m_day);
+            m_infoTitle = "Events " + key;
+            m_infoBody = "";
+            for (const auto& e : m_events) {
+                if (e.date == key) m_infoBody += "- " + e.title + "\n";
+            }
+            if (m_infoBody.isEmpty()) m_infoBody = "No events scheduled for this day.";
+            m_infoScroll = 0;
+            m_infoModal = true;
         } else if (ev.code == CK_CHAR && (ev.ch == 'd' || ev.ch == 'D')) {
             String key = fmtDate(m_year, m_month, m_day);
             for (int i = (int)m_events.size() - 1; i >= 0; --i) {
@@ -170,7 +188,7 @@ public:
 
         // Footer
         spr.setTextColor(th.textDim);
-        spr.drawString("[/] Mo  [A] Add  [D] Del", 6, 124);
+        spr.drawString("[A]Add [I]All [D]Del [[/]]Mo", 6, 124);
 
         if (m_adding) {
             spr.fillRoundRect(20, 40, 200, 56, 5, th.surface2);
@@ -184,9 +202,17 @@ public:
         }
 
         ui::drawToastOverlay(spr);
+        if (m_infoModal) {
+            ui::drawTextModal(spr, m_infoTitle.c_str(), m_infoBody, m_infoScroll, &m_infoLines);
+        }
     }
 
 private:
+    bool m_infoModal = false;
+    String m_infoTitle;
+    String m_infoBody;
+    int m_infoScroll = 0;
+    int m_infoLines = 0;
     int m_year = 2026, m_month = 11, m_day = 24;
     int m_todayY = 2026, m_todayM = 11, m_todayD = 24;
     std::vector<CalEvent> m_events;

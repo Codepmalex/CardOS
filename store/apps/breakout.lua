@@ -12,7 +12,7 @@ local function start(d)
   mkBricks(); spk, tr = {}, {}
   local s = BSP[dif]; bx, by, vx, vy = 120, 108, s, -s
 end
-function onEnter() pick = true; over = false; win = false; sc = 0 end
+function onEnter() pick = true; over = false; win = false; sc = 0; mkBricks(); spk, tr = {}, {} end
 function onTick()
   local now = cardos.millis(); if pick or over or win or now - lm < 25 then return end; lm = now
   if cardos.isKeyDown("left") then px = math.max(4, px - 3.6) end
@@ -53,10 +53,12 @@ function onInput(k, c)
 end
 function onRender()
   cardos.clear(); cardos.statusBar("Breakout [" .. DN[dif] .. "] " .. sc .. " L:" .. lv)
-  for r = 1, 4 do for c = 1, 8 do if br[r][c] then cardos.fillRect(8 + (c - 1) * 28, 24 + (r - 1) * 11, 25, 8, 2, COLS[r]) end end end
-  for _, s in ipairs(spk) do cardos.fillRect(math.floor(s.x), math.floor(s.y), 2, 2, 0, "warn") end
-  for i, p in ipairs(tr) do cardos.circle(math.floor(p.x), math.floor(p.y), math.max(1, 3 - i), "dim", true) end
-  cardos.fillRect(math.floor(px), 122, pw, 5, 2, "accent"); cardos.circle(math.floor(bx), math.floor(by), 3, "text", true)
+  if not pick then
+    for r = 1, 4 do for c = 1, 8 do if br[r] and br[r][c] then cardos.fillRect(8 + (c - 1) * 28, 24 + (r - 1) * 11, 25, 8, 2, COLS[r]) end end end
+    for _, s in ipairs(spk) do cardos.fillRect(math.floor(s.x), math.floor(s.y), 2, 2, 0, "warn") end
+    for i, p in ipairs(tr) do cardos.circle(math.floor(p.x), math.floor(p.y), math.max(1, 3 - i), "dim", true) end
+    cardos.fillRect(math.floor(px), 122, pw, 5, 2, "accent"); cardos.circle(math.floor(bx), math.floor(by), 3, "text", true)
+  end
   if pick then
     cardos.fillRect(30, 36, 180, 68, 5, "surface"); cardos.drawRect(30, 36, 180, 68, 5, "accent")
     cardos.text("BREAKOUT - DIFFICULTY", 120, 48, "accent", 1, "C")

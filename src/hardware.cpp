@@ -250,8 +250,8 @@ void triggerNotification(NotifApp app, const char* msg) {
 
     if (rule.ledEnabled) {
         g_sys.ledNotifyColor = LED_PRESETS[rule.ledColorIdx % 7];
-        g_sys.ledNotifyPattern = rule.ledPattern % 3;
-        g_sys.ledNotifyUntilMs = millis() + 2600;
+        g_sys.ledNotifyPattern = rule.ledPattern % 4;
+        g_sys.ledNotifyUntilMs = millis() + 6500;
     }
 
     // Silent mode keeps LEDs active but mutes all sound
@@ -354,18 +354,28 @@ void updateLedEngine() {
         return;
     }
 
-    // Notification LED pulse (active in Sound and Silent modes)
+    // Notification LED alert (active in Sound and Silent modes)
     if (now < g_sys.ledNotifyUntilMs && g_settings.notifEnabled) {
         uint8_t br = g_settings.ledBrightness;
         uint8_t nr = (g_sys.ledNotifyColor >> 16) & 0xFF;
         uint8_t ng = (g_sys.ledNotifyColor >> 8) & 0xFF;
         uint8_t nb = g_sys.ledNotifyColor & 0xFF;
-        bool on = true;
-        if (g_sys.ledNotifyPattern == 0)      on = ((now / 250) % 2) == 0; // Pulse
-        else if (g_sys.ledNotifyPattern == 1) on = ((now / 90) % 2) == 0;  // Fast
-        else                                  on = true;                    // Solid
-
-        setLedRgb(on ? (nr * br) / 255 : 0, on ? (ng * br) / 255 : 0, on ? (nb * br) / 255 : 0);
+        float mult = 1.0f;
+        if (g_sys.ledNotifyPattern == 0) {
+            // Smooth sine-wave pulse
+            mult = 0.08f + 0.92f * (sinf((now % 1400) * 2.0f * PI / 1400.0f) + 1.0f) * 0.5f;
+        } else if (g_sys.ledNotifyPattern == 1) {
+            // Standard Blink
+            mult = (((now / 350) % 2) == 0) ? 1.0f : 0.0f;
+        } else if (g_sys.ledNotifyPattern == 2) {
+            // Fast Flash
+            mult = (((now / 110) % 2) == 0) ? 1.0f : 0.0f;
+        } else {
+            // Solid
+            mult = 1.0f;
+        }
+        uint8_t eff = (uint8_t)(br * mult);
+        setLedRgb((nr * eff) / 255, (ng * eff) / 255, (nb * eff) / 255);
         return;
     }
 

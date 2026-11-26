@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "state.h"
 #include <time.h>
+#include <vector>
 
 namespace ui {
 
@@ -345,12 +346,36 @@ void drawAppIcon(M5Canvas& spr, int cx, int cy, AppId id, uint16_t color, bool i
             spr.drawLine(cx - 2, cy - 3, cx + 5, cy - 4, color);
             break;
         }
-        case APP_FEEDBACK: {
-            // Lightbulb / Feature Ideas emblem
-            spr.drawCircle(cx, cy - 2, 5, color);
-            spr.fillCircle(cx, cy - 2, 2, rgb565(250, 204, 21));
-            spr.drawFastHLine(cx - 2, cy + 4, 5, color);
-            spr.drawFastHLine(cx - 1, cy + 6, 3, color);
+        case APP_RECORDER: {
+            // Microphone capsule + stand
+            spr.drawRoundRect(cx - 3, cy - 7, 6, 9, 3, color);
+            spr.fillRect(cx - 2, cy - 6, 4, 6, rgb565(244, 63, 94));
+            spr.drawFastVLine(cx, cy + 2, 4, color);
+            spr.drawFastHLine(cx - 3, cy + 6, 7, color);
+            break;
+        }
+        case APP_PHONE: {
+            // Smartphone + signal arc
+            spr.drawRoundRect(cx - 4, cy - 7, 8, 14, 2, color);
+            spr.fillRect(cx - 2, cy - 4, 4, 8, rgb565(56, 189, 248));
+            spr.drawPixel(cx, cy + 5, color);
+            spr.drawLine(cx + 6, cy - 4, cx + 8, cy - 6, rgb565(52, 211, 153));
+            break;
+        }
+        case APP_MACLINK: {
+            // Laptop + wireless link
+            spr.drawRect(cx - 6, cy - 5, 12, 8, color);
+            spr.fillRect(cx - 5, cy - 4, 10, 6, rgb565(56, 189, 248));
+            spr.drawFastHLine(cx - 8, cy + 4, 16, color);
+            spr.drawPixel(cx + 7, cy - 6, rgb565(52, 211, 153));
+            break;
+        }
+        case APP_TERMINAL: {
+            // Command shell >_
+            spr.drawRoundRect(cx - 7, cy - 6, 14, 12, 2, color);
+            spr.drawLine(cx - 4, cy - 2, cx - 1, cy, rgb565(52, 211, 153));
+            spr.drawLine(cx - 1, cy, cx - 4, cy + 2, rgb565(52, 211, 153));
+            spr.drawFastHLine(cx + 1, cy + 2, 4, color);
             break;
         }
         case APP_LUA_RUNNER:
@@ -650,6 +675,93 @@ void drawScreensaverFrame(M5Canvas& spr) {
 
     // Keep live notifications visible on screensaver
     drawToastOverlay(spr);
+}
+
+static void splitWrappedLines(const String& text, int cols, std::vector<String>& lines) {
+    lines.clear();
+    if (cols < 4) cols = 4;
+    int n = (int)text.length();
+    int i = 0;
+    while (i < n) {
+        int nl = text.indexOf('\n', i);
+        int endSeg = (nl >= 0) ? nl : n;
+        if (endSeg == i) {
+            lines.push_back("");
+            i++;
+            continue;
+        }
+        int pos = i;
+        while (pos < endSeg) {
+            int rem = endSeg - pos;
+            if (rem <= cols) {
+                lines.push_back(text.substring(pos, endSeg));
+                pos = endSeg;
+            } else {
+                int brk = -1;
+                for (int k = pos + cols; k > pos; --k) {
+                    if (text[k] == ' ' || text[k] == '\t') { brk = k; break; }
+                }
+                if (brk > pos) {
+                    lines.push_back(text.substring(pos, brk));
+                    pos = brk + 1;
+                } else {
+                    lines.push_back(text.substring(pos, pos + cols));
+                    pos += cols;
+                }
+            }
+        }
+        i = (nl >= 0) ? (nl + 1) : n;
+    }
+    if (lines.empty()) lines.push_back("");
+}
+
+int drawWrappedText(M5Canvas& spr, const String& text, int x, int y, int maxW, int maxH,
+                    int lineH, int scrollLines, int* totalLinesOut) {
+    int cols = maxW / 6;
+    std::vector<String> lines;
+    splitWrappedLines(text, cols, lines);
+    if (totalLinesOut) *totalLinesOut = (int)lines.size();
+
+    int maxVis = max(1, maxH / lineH);
+    int start = constrain(scrollLines, 0, max(0, (int)lines.size() - 1));
+    int drawn = 0;
+    spr.setTextSize(1);
+    spr.setTextDatum(TL_DATUM);
+    for (int i = start; i < (int)lines.size() && drawn < maxVis; ++i) {
+        spr.drawString(lines[i], x, y + drawn * lineH);
+        drawn++;
+    }
+    return drawn;
+}
+
+void drawTextModal(M5Canvas& spr, const char* title, const String& body,
+                   int scrollLine, int* totalLinesOut) {
+    const auto& th = activeTheme();
+    uint16_t acc = activeAccent();
+    int mx = 8, my = 18, mw = SCREEN_W - 16, mh = SCREEN_H - 24;
+    spr.fillRoundRect(mx, my, mw, mh, 6, th.surface);
+    spr.drawRoundRect(mx, my, mw, mh, 6, acc);
+
+    spr.setTextSize(1);
+    spr.setTextColor(acc);
+    String t = title ? String(title) : String("Details");
+    if ((int)t.length() > 34) t = t.substring(0, 31) + "...";
+    spr.drawString(t, mx + 8, my + 6);
+    spr.drawFastHLine(mx + 4, my + 17, mw - 8, th.border);
+
+    int totalLines = 0;
+    spr.setTextColor(th.text);
+    drawWrappedText(spr, body, mx + 8, my + 22, mw - 22, mh - 40, 10, scrollLine, &totalLines);
+    if (totalLinesOut) *totalLinesOut = totalLines;
+
+    int visLines = max(1, (mh - 40) / 10);
+    if (totalLines > visLines) {
+        drawScrollbar(spr, mx + mw - 7, my + 21, mh - 38, totalLines, visLines, scrollLine);
+    }
+
+    spr.drawFastHLine(mx + 4, my + mh - 15, mw - 8, th.border);
+    spr.setTextColor(th.textDim);
+    spr.drawString("[Up/Dn]Scroll   [ESC/Ent/I]Close", mx + 8, my + mh - 11);
 }
 
 } // namespace ui

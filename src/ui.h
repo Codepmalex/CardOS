@@ -27,5 +27,11 @@ void drawChargingAnimFrame(M5Canvas& spr, uint32_t frame, int battPct);
 // Ultra-low-power screensaver clock/battery/Wi-Fi overlay
 void drawScreensaverFrame(M5Canvas& spr);
 
+// Clean word-wrapping text renderer & scrollable full-description modal
+int drawWrappedText(M5Canvas& spr, const String& text, int x, int y, int maxW, int maxH,
+                    int lineH = 10, int scrollLines = 0, int* totalLinesOut = nullptr);
+void drawTextModal(M5Canvas& spr, const char* title, const String& body,
+                   int scrollLine, int* totalLinesOut = nullptr);
+
 } // namespace ui
 

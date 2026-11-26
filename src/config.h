@@ -6,7 +6,7 @@
 constexpr int SCREEN_W = 240;
 constexpr int SCREEN_H = 135;
 constexpr int STATUS_BAR_H = 16;
-constexpr const char* CARDOS_VERSION = "2.1";
+constexpr const char* CARDOS_VERSION = "2.2";
 
 // Cardputer ADV Hardware Pins
 constexpr int SD_SCK_PIN  = 40;
@@ -39,7 +39,10 @@ enum AppId : uint8_t {
     APP_SNAKE,
     APP_FLAPPY,
     APP_MUSIC,
-    APP_FEEDBACK,
+    APP_RECORDER,
+    APP_PHONE,
+    APP_MACLINK,
+    APP_TERMINAL,
     APP_LUA_RUNNER,
     APP_COUNT
 };
@@ -75,6 +78,8 @@ enum NotifApp : uint8_t {
     NOTIF_BATTERY,
     NOTIF_SYSTEM,
     NOTIF_MINER,
+    NOTIF_UPDATES,
+    NOTIF_PHONE,
     NOTIF_APP_COUNT
 };
 
@@ -209,15 +214,15 @@ static const char* PROFILE_NAMES[PROF_COUNT] = {
 };
 
 static const char* NOTIF_APP_NAMES[NOTIF_APP_COUNT] = {
-    "Calendar", "Weather/Rain", "Battery", "System", "Miner"
+    "Calendar", "Weather/Rain", "Battery", "System", "Miner", "Updates", "Phone"
 };
 
 static const char* NOTIF_TONE_NAMES[4] = {
     "Chime", "Double", "Alert", "Soft"
 };
 
-static const char* NOTIF_LED_PAT_NAMES[3] = {
-    "Pulse", "Fast", "Solid"
+static const char* NOTIF_LED_PAT_NAMES[4] = {
+    "Pulse", "Blink", "Fast", "Solid"
 };
 
 static const uint32_t LED_PRESETS[7] = {

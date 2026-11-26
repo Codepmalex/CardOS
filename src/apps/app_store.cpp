@@ -4,7 +4,6 @@
 #include "../storage.h"
 #include "../ui.h"
 #include "../app_installer.h"
-#include "../bug_report.h"
 #include <HTTPClient.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
@@ -66,6 +65,18 @@ public:
     }
 
     void onInput(const InputEvent& ev) override {
+        if (m_infoModal) {
+            if (isNavUp(ev) && m_infoScroll > 0) {
+                m_infoScroll--;
+            } else if (isNavDown(ev)) {
+                int maxSc = max(0, m_infoTotalLines - 8);
+                if (m_infoScroll < maxSc) m_infoScroll++;
+            } else if (isNavBack(ev) || ev.code == CK_ENTER ||
+                       (ev.code == CK_CHAR && (ev.ch == 'i' || ev.ch == 'I'))) {
+                m_infoModal = false;
+            }
+            return;
+        }
         if (m_editingUrl) {
             handleUrlEditInput(ev);
             return;
@@ -140,9 +151,17 @@ public:
         }
 
         ui::drawToastOverlay(spr);
+        if (m_infoModal) {
+            ui::drawTextModal(spr, m_infoTitle.c_str(), m_infoBody, m_infoScroll, &m_infoTotalLines);
+        }
     }
 
 private:
+    bool m_infoModal = false;
+    String m_infoTitle;
+    String m_infoBody;
+    int m_infoScroll = 0;
+    int m_infoTotalLines = 0;
     int m_tab = 0; // 0 = GitHub Store, 1 = Updates, 2 = Other Apps (.bin)
     int m_catIdx = 0;
     std::vector<StoreItem> m_catalog;
@@ -452,7 +471,7 @@ private:
         String title = String(isUpdate ? "Updating " : "Installing ") + it.name;
         if (!httpGetText(pkgUrl, body, code, title.c_str(), "Fetching manifest...", 10, 40)) {
             snprintf(m_statusMsg, sizeof(m_statusMsg), "DL HTTP %d: push GitHub?", code);
-            triggerOsError("App Store", ("Manifest HTTP " + String(code) + " for " + it.id).c_str());
+            showToast(("Download err HTTP " + String(code)).c_str(), 2000);
             return;
         }
 
@@ -470,13 +489,13 @@ private:
                 if (!httpGetText(scriptUrl, scriptBody, sCode, title.c_str(), "Downloading app script...", 35, scriptEndPct) ||
                     scriptBody.isEmpty()) {
                     snprintf(m_statusMsg, sizeof(m_statusMsg), "Script HTTP %d", sCode);
-                    triggerOsError("App Store", ("Script HTTP " + String(sCode) + " for " + it.id).c_str());
+                    showToast(("Script err HTTP " + String(sCode)).c_str(), 2000);
                     return;
                 }
                 drawStoreProgress(title.c_str(), "Writing script to SD...", scriptEndPct + 2);
                 ensureDir("/store");
                 if (!writeTextFile(("/store/" + it.id + ".lua").c_str(), scriptBody)) {
-                    triggerOsError("App Store", ("SD write failed for " + it.id + ".lua").c_str());
+                    showToast("SD write failed (.lua)", 1800);
                     return;
                 }
             }
@@ -540,6 +559,14 @@ private:
             } else {
                 downloadAndInstall(it, false);
             }
+        } else if (ev.code == CK_CHAR && (ev.ch == 'i' || ev.ch == 'I') && !m_filtered.empty()) {
+            const auto& it = m_catalog[m_filtered[m_storeSel]];
+            m_infoTitle = it.name + " v" + it.version;
+            m_infoBody = "Category: " + it.category + "\n";
+            if (!it.installedVer.isEmpty()) m_infoBody += "Installed: v" + it.installedVer + "\n";
+            m_infoBody += "\n" + it.desc;
+            m_infoScroll = 0;
+            m_infoModal = true;
         } else if (ev.code == CK_CHAR && (ev.ch == 'x' || ev.ch == 'X') && !m_filtered.empty()) {
             const auto& it = m_catalog[m_filtered[m_storeSel]];
             if (isStoreAppInstalled(it.id)) {
@@ -563,6 +590,13 @@ private:
             g_settings.autoUpdateApps = !g_settings.autoUpdateApps;
             saveSettings();
             showToast(g_settings.autoUpdateApps ? "Auto-Update ON" : "Auto-Update OFF", 1400);
+        } else if (ev.code == CK_CHAR && (ev.ch == 'i' || ev.ch == 'I') && !m_updates.empty()) {
+            const auto& it = m_catalog[m_updates[m_updSel]];
+            m_infoTitle = it.name + " Update v" + it.version;
+            m_infoBody = "Current: v" + (it.installedVer.isEmpty() ? String("?") : it.installedVer)
+                       + " -> v" + it.version + "\nCategory: " + it.category + "\n\n" + it.desc;
+            m_infoScroll = 0;
+            m_infoModal = true;
         } else if (ev.code == CK_ENTER && !m_updates.empty()) {
             StoreItem itemCopy = m_catalog[m_updates[m_updSel]];
             downloadAndInstall(itemCopy, true);
@@ -674,7 +708,7 @@ private:
             ui::drawScrollbar(spr, SCREEN_W - 6, 45, 74, (int)m_filtered.size(), 3, m_storeScroll);
         }
         spr.setTextColor(th.textDim);
-        spr.drawString("[Ent]Get/Upd/Open [X]Rem [R]Sync", 6, 125);
+        spr.drawString("[Ent]Get/Open [I]Info [X]Rem [R]Sync", 6, 125);
     }
 
     void renderUpdatesTab(M5Canvas& spr, const ThemePalette& th, uint16_t acc) {
@@ -741,7 +775,7 @@ private:
         ui::drawScrollbar(spr, SCREEN_W - 6, 46, 74, (int)m_updates.size(), 3, m_updScroll);
 
         spr.setTextColor(th.textDim);
-        spr.drawString("[Ent]Upd [A]All [T]Auto [R]Chk", 6, 125);
+        spr.drawString("[Ent]Upd [I]Info [A]All [T]Auto", 6, 125);
     }
 
     void renderBinsTab(M5Canvas& spr, const ThemePalette& th, uint16_t acc) {

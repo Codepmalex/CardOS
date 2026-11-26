@@ -7,7 +7,7 @@
     {"id":"irtv","name":"IR TV","category":"Utilities","version":"1.2","desc":"128+ TV/Proj IR remote & Y/N setup","pkg":"apps/irtv.json"},
     {"id":"music","name":"Music","category":"Utilities","version":"2.0","desc":"MP3 playlists, Shuffle, Speaker/AUX & Phone Stream","pkg":"apps/music.json"},
     {"id":"pong","name":"Pong","category":"Games","version":"1.1","desc":"Smooth paddle Pong + difficulty","pkg":"apps/pong.json"},
-    {"id":"breakout","name":"Breakout","category":"Games","version":"1.1","desc":"Smooth paddle brick smash + difficulty","pkg":"apps/breakout.json"},
+    {"id":"breakout","name":"Breakout","category":"Games","version":"1.2","desc":"Smooth paddle brick smash + difficulty","pkg":"apps/breakout.json"},
     {"id":"tetris","name":"Block Drop","category":"Games","version":"1.1","desc":"Smooth block drop + difficulty","pkg":"apps/tetris.json"},
     {"id":"invaders","name":"Invaders","category":"Games","version":"1.1","desc":"Smooth ship + alien animation & diff","pkg":"apps/invaders.json"},
     {"id":"dino","name":"Dino Run","category":"Games","version":"1.1","desc":"Animated dino runner + difficulty","pkg":"apps/dino.json"},

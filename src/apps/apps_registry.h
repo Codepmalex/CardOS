@@ -19,12 +19,18 @@ App* createSysInfoApp();
 App* createSnakeApp();
 App* createFlappyApp();
 App* createMusicApp();
-App* createFeedbackApp();
+App* createRecorderApp();
+App* createPhoneApp();
+App* createMacLinkApp();
+App* createTerminalApp();
 App* createLuaRunnerApp();
 
-// Background audio tick for Music app
+// Background services for Music / Phone / MacLink
 void tickMusicPlayer();
 void stopMusicPlayback();
+void tickPhoneLink();
+void stopPhoneBleIfRunning();
+bool macLinkExecCommand(const String& cmd, String& out);
 
 // Launch a downloaded Store Lua script app (/store/<appId>.lua)
 void launchLuaApp(const String& appId);

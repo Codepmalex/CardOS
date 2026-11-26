@@ -486,30 +486,107 @@ bool runGithubOsUpdateInteractive() {
     }
 
     bool newer = compareSemVer(remoteVer, CARDOS_VERSION) > 0;
-    auto& d = M5Cardputer.Display;
-    int mx = 12, my = 18, mw = SCREEN_W - 24, mh = SCREEN_H - 36;
-    d.fillRoundRect(mx, my, mw, mh, 6, 0x0841);
-    d.drawRoundRect(mx, my, mw, mh, 6, 0x3DFB);
-    d.setTextSize(1);
-    d.setTextDatum(TC_DATUM);
-    d.setTextColor(newer ? 0x2EEB : 0xFFFF, 0x0841);
-    String hdr = newer ? ("New CardOS v" + remoteVer) : ("Up to date (v" + String(CARDOS_VERSION) + ")");
-    d.drawString(hdr, SCREEN_W / 2, my + 8);
-    d.setTextColor(0xBDF7, 0x0841);
-    String cur = "Current: v" + String(CARDOS_VERSION) + "  Latest: v" + remoteVer;
-    d.drawString(cur, SCREEN_W / 2, my + 24);
-    if (notes.length() > 32) notes = notes.substring(0, 29) + "...";
-    if (notes.length() > 0) {
-        d.setTextColor(0x9E7F, 0x0841);
-        d.drawString(notes, SCREEN_W / 2, my + 39);
-    }
-    d.setTextColor(0xFD20, 0x0841);
-    d.drawString("Uses App1 slot temporarily", SCREEN_W / 2, my + 56);
-    d.setTextColor(0xFFFF, 0x0841);
-    d.drawString(newer ? "[Ent] Install   [Esc] Cancel" : "[R] Reinstall   [Esc] Back", SCREEN_W / 2, my + 74);
-    d.setTextDatum(TL_DATUM);
+    String fullNotes = notes;
+    auto drawPrompt = [&]() {
+        auto& d = M5Cardputer.Display;
+        int mx = 12, my = 18, mw = SCREEN_W - 24, mh = SCREEN_H - 36;
+        d.fillRoundRect(mx, my, mw, mh, 6, 0x0841);
+        d.drawRoundRect(mx, my, mw, mh, 6, 0x3DFB);
+        d.setTextSize(1);
+        d.setTextDatum(TC_DATUM);
+        d.setTextColor(newer ? 0x2EEB : 0xFFFF, 0x0841);
+        String hdr = newer ? ("New CardOS v" + remoteVer) : ("Up to date (v" + String(CARDOS_VERSION) + ")");
+        d.drawString(hdr, SCREEN_W / 2, my + 8);
+        d.setTextColor(0xBDF7, 0x0841);
+        String cur = "Current: v" + String(CARDOS_VERSION) + "  Latest: v" + remoteVer;
+        d.drawString(cur, SCREEN_W / 2, my + 24);
+        String shortN = fullNotes;
+        if (shortN.length() > 30) shortN = shortN.substring(0, 27) + "...";
+        if (shortN.length() > 0) {
+            d.setTextColor(0x9E7F, 0x0841);
+            d.drawString(shortN, SCREEN_W / 2, my + 39);
+        }
+        d.setTextColor(0xFD20, 0x0841);
+        d.drawString("Uses App1 slot temporarily", SCREEN_W / 2, my + 55);
+        d.setTextColor(0xFFFF, 0x0841);
+        d.drawString(newer ? "[Ent]Install [I]Info [Esc]No" : "[R]Reinst [I]Info [Esc]Back", SCREEN_W / 2, my + 74);
+        d.setTextDatum(TL_DATUM);
+    };
 
-    if (!waitOtaKeyChoice(!newer)) return false;
+    auto showNotesReader = [&]() {
+        std::vector<String> lines;
+        int cols = 33;
+        int n = (int)fullNotes.length(), pos = 0;
+        while (pos < n) {
+            int rem = n - pos;
+            if (rem <= cols) { lines.push_back(fullNotes.substring(pos)); break; }
+            int brk = -1;
+            for (int k = pos + cols; k > pos; --k) if (fullNotes[k] == ' ') { brk = k; break; }
+            if (brk > pos) { lines.push_back(fullNotes.substring(pos, brk)); pos = brk + 1; }
+            else { lines.push_back(fullNotes.substring(pos, pos + cols)); pos += cols; }
+        }
+        if (lines.empty()) lines.push_back("No release notes.");
+        int sc = 0, vis = 7;
+        auto drawN = [&]() {
+            auto& d = M5Cardputer.Display;
+            int mx = 8, my = 14, mw = SCREEN_W - 16, mh = SCREEN_H - 28;
+            d.fillRoundRect(mx, my, mw, mh, 6, 0x0841);
+            d.drawRoundRect(mx, my, mw, mh, 6, 0x3DFB);
+            d.setTextSize(1); d.setTextDatum(TL_DATUM);
+            d.setTextColor(0x3DFB, 0x0841);
+            d.drawString("Release Notes v" + remoteVer, mx + 8, my + 6);
+            d.setTextColor(0xFFFF, 0x0841);
+            for (int r = 0; r < vis && sc + r < (int)lines.size(); ++r) {
+                d.drawString(lines[sc + r], mx + 8, my + 20 + r * 10);
+            }
+            d.setTextColor(0xBDF7, 0x0841);
+            d.drawString("[Up/Dn]Scroll [Esc/Ent/I]Back", mx + 8, my + mh - 13);
+        };
+        drawN();
+        delay(140);
+        while (true) {
+            M5Cardputer.update();
+            if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+                auto st = M5Cardputer.Keyboard.keysState();
+                if (st.enter || st.esc || st.del) break;
+                bool up = st.up, dn = st.down, back = false;
+                for (char c : st.word) {
+                    if (c == ';') up = true;
+                    else if (c == '.') dn = true;
+                    else if (c == 'i' || c == 'I' || c == '`' || c == 27) back = true;
+                }
+                if (back) break;
+                if (up && sc > 0) { sc--; drawN(); }
+                else if (dn && sc < (int)lines.size() - vis) { sc++; drawN(); }
+            }
+            delay(20);
+        }
+        drawPrompt();
+    };
+
+    drawPrompt();
+    bool confirmed = false;
+    delay(150);
+    while (true) {
+        M5Cardputer.update();
+        if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+            auto st = M5Cardputer.Keyboard.keysState();
+            if (st.enter && newer) { confirmed = true; break; }
+            bool cancel = st.del || st.esc, info = false, go = false;
+            for (char c : st.word) {
+                if (c == 'i' || c == 'I') info = true;
+                else if (c == 'y' || c == 'Y') go = true;
+                else if (!newer && (c == 'r' || c == 'R')) go = true;
+                else if (c == 'n' || c == 'N' || c == 27 || c == '`') cancel = true;
+            }
+            if (info) { showNotesReader(); delay(120); continue; }
+            if (go) { confirmed = true; break; }
+            if (cancel) { confirmed = false; break; }
+        }
+        if (M5Cardputer.BtnA.wasPressed()) { confirmed = false; break; }
+        delay(20);
+    }
+    if (!confirmed) return false;
 
     SD.remove(kOtaBinPath);
     File out = SD.open(kOtaBinPath, FILE_WRITE);
