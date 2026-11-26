@@ -29,7 +29,7 @@
       "id": "irtv",
       "name": "IR TV",
       "category": "Utilities",
-      "version": "1.0",
+      "version": "1.1",
       "desc": "Universal TV & Projector IR remote",
       "pkg": "apps/irtv.json"
     }

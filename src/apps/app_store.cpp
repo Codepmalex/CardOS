@@ -22,6 +22,8 @@ struct StoreItem {
     String desc;
     String version;
     String pkgUrl;
+    String installedVer;
+    bool hasUpdate;
 };
 
 static const char* CAT_FILTERS[4] = {"All", "Utilities", "Crypto", "Games"};
@@ -37,23 +39,27 @@ public:
         m_catIdx = 0;
         m_storeSel = 0;
         m_storeScroll = 0;
+        m_updSel = 0;
+        m_updScroll = 0;
         m_bins = listSdBinApps();
         m_binSel = 0;
         m_binScroll = 0;
 
         loadCachedCatalog();
         if (g_sys.wifiConnected) {
-            fetchCatalog();
+            fetchCatalog(false);
         } else if (m_catalog.empty()) {
             loadDefaultCatalogMetadata();
             strlcpy(m_statusMsg, "Offline (connect Wi-Fi to download)", sizeof(m_statusMsg));
         }
+        refreshUpdateFlags();
         rebuildFiltered();
     }
 
     void onExit() override {
         std::vector<StoreItem>().swap(m_catalog);
         std::vector<int>().swap(m_filtered);
+        std::vector<int>().swap(m_updates);
         std::vector<FileEntry>().swap(m_bins);
         m_urlInput = String();
     }
@@ -66,16 +72,18 @@ public:
         if (isNavBack(ev)) { switchApp(APP_HOME); return; }
 
         if (isNavLeft(ev)) {
-            m_tab = 0;
+            if (m_tab > 0) m_tab--;
             return;
         }
         if (isNavRight(ev)) {
-            m_tab = 1;
+            if (m_tab < 2) m_tab++;
             return;
         }
 
         if (m_tab == 0) {
             handleStoreInput(ev);
+        } else if (m_tab == 1) {
+            handleUpdatesInput(ev);
         } else {
             handleBinsInput(ev);
         }
@@ -94,16 +102,26 @@ public:
 
         ui::drawStatusBar(spr, "App Store");
 
-        // Top tabs (y: 18..31)
-        spr.fillRoundRect(6, 18, 64, 13, 3, m_tab == 0 ? acc : th.surface);
+        // Top tabs (y: 18..31): Store | Updates / Upd(N) | Other
         spr.setTextSize(1);
-        spr.setTextColor(m_tab == 0 ? th.bg : th.textDim);
         spr.setTextDatum(MC_DATUM);
-        spr.drawString("Store", 38, 24);
 
-        spr.fillRoundRect(74, 18, 76, 13, 3, m_tab == 1 ? acc : th.surface);
-        spr.setTextColor(m_tab == 1 ? th.bg : th.textDim);
-        spr.drawString("Other Apps", 112, 24);
+        spr.fillRoundRect(6, 18, 46, 13, 3, m_tab == 0 ? acc : th.surface);
+        spr.setTextColor(m_tab == 0 ? th.bg : th.textDim);
+        spr.drawString("Store", 29, 24);
+
+        char updLbl[16];
+        if (m_updates.empty()) snprintf(updLbl, sizeof(updLbl), "Updates");
+        else                   snprintf(updLbl, sizeof(updLbl), "Upd(%d)", (int)m_updates.size());
+        uint16_t updBg = (m_tab == 1) ? acc : (m_updates.empty() ? th.surface : th.surface2);
+        uint16_t updFg = (m_tab == 1) ? th.bg : (m_updates.empty() ? th.textDim : th.warn);
+        spr.fillRoundRect(56, 18, 60, 13, 3, updBg);
+        spr.setTextColor(updFg);
+        spr.drawString(updLbl, 86, 24);
+
+        spr.fillRoundRect(120, 18, 48, 13, 3, m_tab == 2 ? acc : th.surface);
+        spr.setTextColor(m_tab == 2 ? th.bg : th.textDim);
+        spr.drawString("Other", 144, 24);
 
         if (m_tab == 0) {
             spr.setTextDatum(TR_DATUM);
@@ -114,6 +132,8 @@ public:
 
         if (m_tab == 0) {
             renderStoreTab(spr, th, acc);
+        } else if (m_tab == 1) {
+            renderUpdatesTab(spr, th, acc);
         } else {
             renderBinsTab(spr, th, acc);
         }
@@ -122,12 +142,15 @@ public:
     }
 
 private:
-    int m_tab = 0; // 0 = GitHub Store, 1 = Other Apps (.bin)
+    int m_tab = 0; // 0 = GitHub Store, 1 = Updates, 2 = Other Apps (.bin)
     int m_catIdx = 0;
     std::vector<StoreItem> m_catalog;
     std::vector<int> m_filtered;
+    std::vector<int> m_updates;
     int m_storeSel = 0;
     int m_storeScroll = 0;
+    int m_updSel = 0;
+    int m_updScroll = 0;
     char m_statusMsg[48] = "";
 
     bool m_editingUrl = false;
@@ -269,9 +292,9 @@ private:
 
     void loadDefaultCatalogMetadata() {
         m_catalog.clear();
-        m_catalog.push_back({"weather", "Weather", "Utilities", "Live 3-tab forecast & rain alerts", "1.2", "apps/weather.json"});
-        m_catalog.push_back({"miner",   "Miner",   "Crypto",    "Kryptex pool stats & alerts",       "1.1", "apps/miner.json"});
-        m_catalog.push_back({"flappy",  "Flappy",  "Games",     "Classic arcade Flappy Bird",        "1.0", "apps/flappy.json"});
+        m_catalog.push_back({"weather", "Weather", "Utilities", "Live 3-tab forecast & rain alerts", "1.2", "apps/weather.json", "", false});
+        m_catalog.push_back({"miner",   "Miner",   "Crypto",    "Kryptex pool stats & alerts",       "1.1", "apps/miner.json",   "", false});
+        m_catalog.push_back({"flappy",  "Flappy",  "Games",     "Classic arcade Flappy Bird",        "1.0", "apps/flappy.json",  "", false});
     }
 
     bool parseCatalogJson(const String& jsonTxt) {
@@ -305,22 +328,82 @@ private:
         m_catalog.clear();
     }
 
-    void fetchCatalog() {
+    static String getInstalledAppVersion(const String& id) {
+        if (!g_sys.sdMounted && !g_sys.spiffsMounted) return "";
+        String pkg = "/store/" + id + ".json";
+        if (!activeFS().exists(pkg.c_str())) return "";
+        String raw = readTextFile(pkg.c_str(), 4096);
+        if (raw.isEmpty()) return "";
+        JsonDocument doc;
+        if (deserializeJson(doc, raw) != DeserializationError::Ok) return "";
+        return String(doc["version"] | "");
+    }
+
+    static bool isVersionNewer(const String& remoteVer, const String& localVer) {
+        if (remoteVer.isEmpty()) return false;
+        if (localVer.isEmpty()) return true;
+        int i1 = 0, i2 = 0;
+        while (i1 < (int)remoteVer.length() || i2 < (int)localVer.length()) {
+            long n1 = 0, n2 = 0;
+            while (i1 < (int)remoteVer.length() && remoteVer[i1] != '.') {
+                if (isdigit((unsigned char)remoteVer[i1])) n1 = n1 * 10 + (remoteVer[i1] - '0');
+                i1++;
+            }
+            if (i1 < (int)remoteVer.length() && remoteVer[i1] == '.') i1++;
+            while (i2 < (int)localVer.length() && localVer[i2] != '.') {
+                if (isdigit((unsigned char)localVer[i2])) n2 = n2 * 10 + (localVer[i2] - '0');
+                i2++;
+            }
+            if (i2 < (int)localVer.length() && localVer[i2] == '.') i2++;
+            if (n1 > n2) return true;
+            if (n1 < n2) return false;
+        }
+        return false;
+    }
+
+    void refreshUpdateFlags() {
+        m_updates.clear();
+        for (int i = 0; i < (int)m_catalog.size(); ++i) {
+            auto& it = m_catalog[i];
+            if (isStoreAppInstalled(it.id)) {
+                it.installedVer = getInstalledAppVersion(it.id);
+                it.hasUpdate = isVersionNewer(it.version, it.installedVer);
+                if (it.hasUpdate) m_updates.push_back(i);
+            } else {
+                it.installedVer = "";
+                it.hasUpdate = false;
+            }
+        }
+        if (m_updSel >= (int)m_updates.size()) m_updSel = max(0, (int)m_updates.size() - 1);
+        m_updScroll = constrain(m_updScroll, 0, max(0, (int)m_updates.size() - 3));
+    }
+
+    void fetchCatalog(bool showUpdateToast = true) {
         if (!g_sys.wifiConnected) {
             showToast("Connect Wi-Fi first!", 1500);
             return;
         }
         String body;
         int code = 0;
-        if (httpGetText(g_settings.storeUrl, body, code, "Syncing GitHub", "Fetching catalog.json...", 15, 95) &&
+        if (httpGetText(g_settings.storeUrl, body, code, "Checking Updates", "Fetching GitHub catalog...", 15, 95) &&
             parseCatalogJson(body)) {
-            drawStoreProgress("Syncing GitHub", "Saving catalog...", 100);
+            drawStoreProgress("Checking Updates", "Saving catalog...", 100);
             ensureDir("/store");
             writeTextFile("/store/catalog.json", body);
-            strlcpy(m_statusMsg, "Synced from GitHub", sizeof(m_statusMsg));
+            refreshUpdateFlags();
+            if (m_updates.empty()) {
+                strlcpy(m_statusMsg, "Synced (all apps up to date)", sizeof(m_statusMsg));
+                if (showUpdateToast) showToast("All apps up to date", 1400);
+            } else {
+                snprintf(m_statusMsg, sizeof(m_statusMsg), "%d update(s) ready!", (int)m_updates.size());
+                if (showUpdateToast) {
+                    showToast((String((int)m_updates.size()) + " update(s) found!").c_str(), 1800);
+                }
+            }
             rebuildFiltered();
         } else {
             if (m_catalog.empty()) loadDefaultCatalogMetadata();
+            refreshUpdateFlags();
             snprintf(m_statusMsg, sizeof(m_statusMsg), "GitHub HTTP %d (using list)", code);
             rebuildFiltered();
         }
@@ -338,7 +421,7 @@ private:
         m_storeScroll = constrain(m_storeScroll, 0, max(0, (int)m_filtered.size() - 3));
     }
 
-    void downloadAndInstall(const StoreItem& it) {
+    void downloadAndInstall(const StoreItem& it, bool isUpdate = false) {
         if (!g_sys.wifiConnected) {
             showToast("Wi-Fi required to download", 1600);
             return;
@@ -346,7 +429,7 @@ private:
         String pkgUrl = resolvePkgUrl(it.pkgUrl);
         String body;
         int code = 0;
-        String title = "Installing " + it.name;
+        String title = String(isUpdate ? "Updating " : "Installing ") + it.name;
         if (!httpGetText(pkgUrl, body, code, title.c_str(), "Fetching manifest...", 10, 40)) {
             snprintf(m_statusMsg, sizeof(m_statusMsg), "DL HTTP %d: push GitHub?", code);
             showToast(("Download err HTTP " + String(code)).c_str(), 2000);
@@ -354,7 +437,7 @@ private:
         }
 
         // If manifest specifies a downloadable Lua script (and optional companion data file),
-        // fetch them genuinely from GitHub
+        // fetch them genuinely from GitHub while preserving user save files
         JsonDocument doc;
         if (deserializeJson(doc, body) == DeserializationError::Ok) {
             String scriptRel = String(doc["script"] | "");
@@ -398,13 +481,14 @@ private:
             }
         }
 
-        drawStoreProgress(title.c_str(), "Registering on Home...", 98);
+        drawStoreProgress(title.c_str(), isUpdate ? "Finalizing update..." : "Registering on Home...", 98);
         ensureDir("/store");
         writeTextFile(("/store/" + it.id + ".json").c_str(), body);
         installStoreAppKey(it.id);
-        drawStoreProgress(title.c_str(), "Installed!", 100);
+        refreshUpdateFlags();
+        drawStoreProgress(title.c_str(), isUpdate ? "Updated!" : "Installed!", 100);
         delay(200);
-        showToast((it.name + " added to Home!").c_str(), 1800);
+        showToast((it.name + (isUpdate ? (" v" + it.version + " updated!") : " added to Home!")).c_str(), 1800);
     }
 
     void handleStoreInput(const InputEvent& ev) {
@@ -418,29 +502,56 @@ private:
             m_catIdx = (m_catIdx + 1) % 4;
             rebuildFiltered();
         } else if (ev.code == CK_CHAR && (ev.ch == 'r' || ev.ch == 'R')) {
-            fetchCatalog();
-            showToast("Store refreshed", 1000);
+            fetchCatalog(true);
         } else if (ev.code == CK_CHAR && (ev.ch == 'u' || ev.ch == 'U')) {
             m_urlInput = g_settings.storeUrl;
             m_editingUrl = true;
         } else if (ev.code == CK_ENTER && !m_filtered.empty()) {
             const auto& it = m_catalog[m_filtered[m_storeSel]];
             if (isStoreAppInstalled(it.id)) {
-                if (isLuaStoreAppInstalled(it.id)) {
+                if (it.hasUpdate) {
+                    downloadAndInstall(it, true);
+                } else if (isLuaStoreAppInstalled(it.id)) {
                     launchLuaApp(it.id);
                 } else {
                     AppId aid = appIdFromKey(it.id);
                     if (aid != APP_COUNT) switchApp(aid);
                 }
             } else {
-                downloadAndInstall(it);
+                downloadAndInstall(it, false);
             }
         } else if (ev.code == CK_CHAR && (ev.ch == 'x' || ev.ch == 'X') && !m_filtered.empty()) {
             const auto& it = m_catalog[m_filtered[m_storeSel]];
             if (isStoreAppInstalled(it.id)) {
                 uninstallStoreAppKey(it.id);
+                refreshUpdateFlags();
                 showToast((it.name + " removed").c_str(), 1400);
             }
+        }
+    }
+
+    void handleUpdatesInput(const InputEvent& ev) {
+        if (isNavUp(ev) && m_updSel > 0) {
+            m_updSel--;
+            if (m_updSel < m_updScroll) m_updScroll = m_updSel;
+        } else if (isNavDown(ev) && m_updSel < (int)m_updates.size() - 1) {
+            m_updSel++;
+            if (m_updSel >= m_updScroll + 3) m_updScroll = m_updSel - 2;
+        } else if (ev.code == CK_CHAR && (ev.ch == 'r' || ev.ch == 'R')) {
+            fetchCatalog(true);
+        } else if (ev.code == CK_ENTER && !m_updates.empty()) {
+            StoreItem itemCopy = m_catalog[m_updates[m_updSel]];
+            downloadAndInstall(itemCopy, true);
+        } else if (ev.code == CK_CHAR && (ev.ch == 'a' || ev.ch == 'A') && !m_updates.empty()) {
+            std::vector<int> todo = m_updates;
+            for (int idx : todo) {
+                if (idx >= 0 && idx < (int)m_catalog.size()) {
+                    StoreItem itemCopy = m_catalog[idx];
+                    downloadAndInstall(itemCopy, true);
+                }
+            }
+            refreshUpdateFlags();
+            showToast("All apps updated!", 1800);
         }
     }
 
@@ -524,14 +635,80 @@ private:
                 spr.drawString(d, 11, y + 13);
 
                 spr.setTextDatum(TR_DATUM);
-                spr.setTextColor(inst ? th.ok : acc);
-                spr.drawString(inst ? "OPEN" : ("[GET " + it.category.substring(0, 4) + "]"), SCREEN_W - 14, y + 3);
+                if (inst && it.hasUpdate) {
+                    spr.setTextColor(th.warn);
+                    spr.drawString("[UPD " + it.version + "]", SCREEN_W - 14, y + 3);
+                } else if (inst) {
+                    spr.setTextColor(th.ok);
+                    spr.drawString("OPEN", SCREEN_W - 14, y + 3);
+                } else {
+                    spr.setTextColor(acc);
+                    spr.drawString("[GET " + it.category.substring(0, 4) + "]", SCREEN_W - 14, y + 3);
+                }
                 spr.setTextDatum(TL_DATUM);
             }
             ui::drawScrollbar(spr, SCREEN_W - 6, 45, 74, (int)m_filtered.size(), 3, m_storeScroll);
         }
         spr.setTextColor(th.textDim);
-        spr.drawString("[Ent]Get/Open [X]Rem [R]Sync [U]URL", 6, 125);
+        spr.drawString("[Ent]Get/Upd/Open [X]Rem [R]Sync", 6, 125);
+    }
+
+    void renderUpdatesTab(M5Canvas& spr, const ThemePalette& th, uint16_t acc) {
+        spr.setTextSize(1);
+        spr.setTextColor(th.textDim);
+        char hdr[36];
+        snprintf(hdr, sizeof(hdr), "%d Update%s Available",
+                 (int)m_updates.size(), m_updates.size() == 1 ? "" : "s");
+        spr.drawString(hdr, 8, 34);
+
+        if (!m_updates.empty()) {
+            spr.fillRoundRect(SCREEN_W - 76, 32, 70, 12, 3, th.warn);
+            spr.setTextColor(th.bg);
+            spr.setTextDatum(MC_DATUM);
+            spr.drawString("[A] Upd All", SCREEN_W - 41, 38);
+            spr.setTextDatum(TL_DATUM);
+        }
+
+        if (m_updates.empty()) {
+            spr.fillRoundRect(8, 48, SCREEN_W - 16, 68, 6, th.surface);
+            spr.drawRoundRect(8, 48, SCREEN_W - 16, 68, 6, th.border);
+            spr.setTextColor(th.ok);
+            spr.drawString("All Apps Up to Date!", 18, 60);
+            spr.setTextColor(th.textDim);
+            spr.drawString("No newer versions on GitHub.", 18, 76);
+            spr.setTextColor(acc);
+            spr.drawString("Press [R] to check again.", 18, 94);
+            spr.setTextColor(th.textDim);
+            spr.drawString("[R] Check Updates   [ESC] Home", 6, 125);
+            return;
+        }
+
+        for (int row = 0; row < 3; ++row) {
+            int upPos = m_updScroll + row;
+            if (upPos >= (int)m_updates.size()) break;
+            const auto& it = m_catalog[m_updates[upPos]];
+            bool sel = (upPos == m_updSel);
+
+            int y = 46 + row * 25;
+            spr.fillRoundRect(6, y, SCREEN_W - 16, 23, 4, sel ? th.surface2 : th.surface);
+            spr.drawRoundRect(6, y, SCREEN_W - 16, 23, 4, sel ? acc : th.border);
+
+            spr.setTextColor(sel ? acc : th.text);
+            spr.drawString(it.name, 11, y + 3);
+
+            spr.setTextColor(th.textDim);
+            String vStr = (it.installedVer.isEmpty() ? "?" : ("v" + it.installedVer)) + " -> v" + it.version;
+            spr.drawString(vStr, 11, y + 13);
+
+            spr.setTextDatum(TR_DATUM);
+            spr.setTextColor(th.warn);
+            spr.drawString("[UPDATE]", SCREEN_W - 14, y + 3);
+            spr.setTextDatum(TL_DATUM);
+        }
+        ui::drawScrollbar(spr, SCREEN_W - 6, 46, 74, (int)m_updates.size(), 3, m_updScroll);
+
+        spr.setTextColor(th.textDim);
+        spr.drawString("[Ent]Update [A]Upd All [R]Check", 6, 125);
     }
 
     void renderBinsTab(M5Canvas& spr, const ThemePalette& th, uint16_t acc) {
