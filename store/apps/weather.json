@@ -1,0 +1,8 @@
+{
+  "id": "weather",
+  "name": "Weather",
+  "category": "Utilities",
+  "version": "1.2",
+  "description": "Live Open-Meteo current, hourly, and 5-day forecast with rain alerts.",
+  "entry": "weather"
+}

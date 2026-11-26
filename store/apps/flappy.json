@@ -1,0 +1,8 @@
+{
+  "id": "flappy",
+  "name": "Flappy",
+  "category": "Games",
+  "version": "1.0",
+  "description": "Classic Flappy Bird arcade game with persistent high score.",
+  "entry": "flappy"
+}

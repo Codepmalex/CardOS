@@ -1,0 +1,29 @@
+{
+  "store": "CardOS App Store",
+  "apps": [
+    {
+      "id": "weather",
+      "name": "Weather",
+      "category": "Utilities",
+      "version": "1.2",
+      "desc": "Live 3-tab forecast & rain alerts",
+      "pkg": "apps/weather.json"
+    },
+    {
+      "id": "miner",
+      "name": "Miner",
+      "category": "Crypto",
+      "version": "1.1",
+      "desc": "Kryptex pool stats & worker alerts",
+      "pkg": "apps/miner.json"
+    },
+    {
+      "id": "flappy",
+      "name": "Flappy",
+      "category": "Games",
+      "version": "1.0",
+      "desc": "Classic arcade Flappy Bird",
+      "pkg": "apps/flappy.json"
+    }
+  ]
+}
