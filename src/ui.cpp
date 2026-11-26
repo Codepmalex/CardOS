@@ -65,6 +65,18 @@ int drawStatusIcons(M5Canvas& spr, bool showTime) {
     }
     rx -= 12;
 
+    // Android-style Bluetooth indicator next to Wi-Fi
+    if (g_sys.btEnabled) {
+        uint16_t bc = g_sys.btConnected ? th.ok : acc;
+        int bx = rx - 4;
+        spr.drawFastVLine(bx, 3, 10, bc);
+        spr.drawLine(bx, 3, bx + 3, 5, bc);
+        spr.drawLine(bx + 3, 5, bx - 2, 9, bc);
+        spr.drawLine(bx, 12, bx + 3, 10, bc);
+        spr.drawLine(bx + 3, 10, bx - 2, 6, bc);
+        rx -= 10;
+    }
+
     // Calendar/Notification dot
     if (g_settings.notifEnabled && g_sys.todayEventsCount > 0) {
         spr.fillCircle(rx, 8, 2, acc);
@@ -103,6 +115,18 @@ int drawStatusIcons(M5Canvas& spr, bool showTime) {
                 if (h == 0) h = 12;
                 snprintf(tStr, sizeof(tStr), "%d:%02d", h, tmInfo.tm_min);
                 rx -= 12;
+
+    // Android-style Bluetooth indicator next to Wi-Fi
+    if (g_sys.btEnabled) {
+        uint16_t bc = g_sys.btConnected ? th.ok : acc;
+        int bx = rx - 4;
+        spr.drawFastVLine(bx, 3, 10, bc);
+        spr.drawLine(bx, 3, bx + 3, 5, bc);
+        spr.drawLine(bx + 3, 5, bx - 2, 9, bc);
+        spr.drawLine(bx, 12, bx + 3, 10, bc);
+        spr.drawLine(bx + 3, 10, bx - 2, 6, bc);
+        rx -= 10;
+    }
                 spr.setTextColor(acc);
                 spr.drawString(ampm, rx, 4);
                 rx -= 1;
@@ -354,20 +378,13 @@ void drawAppIcon(M5Canvas& spr, int cx, int cy, AppId id, uint16_t color, bool i
             spr.drawFastHLine(cx - 3, cy + 6, 7, color);
             break;
         }
-        case APP_PHONE: {
-            // Smartphone + signal arc
-            spr.drawRoundRect(cx - 4, cy - 7, 8, 14, 2, color);
-            spr.fillRect(cx - 2, cy - 4, 4, 8, rgb565(56, 189, 248));
-            spr.drawPixel(cx, cy + 5, color);
-            spr.drawLine(cx + 6, cy - 4, cx + 8, cy - 6, rgb565(52, 211, 153));
-            break;
-        }
-        case APP_MACLINK: {
-            // Laptop + wireless link
-            spr.drawRect(cx - 6, cy - 5, 12, 8, color);
-            spr.fillRect(cx - 5, cy - 4, 10, 6, rgb565(56, 189, 248));
-            spr.drawFastHLine(cx - 8, cy + 4, 16, color);
-            spr.drawPixel(cx + 7, cy - 6, rgb565(52, 211, 153));
+        case APP_APOS: {
+            // Wi-Fi arcs + crisp '+' logo for ApOS
+            spr.fillCircle(cx - 2, cy + 4, 1, color);
+            spr.drawArc(cx - 2, cy + 4, 4, 4, 225, 315, color);
+            spr.drawArc(cx - 2, cy + 4, 7, 7, 225, 315, color);
+            spr.drawFastHLine(cx + 3, cy - 3, 5, rgb565(52, 211, 153));
+            spr.drawFastVLine(cx + 5, cy - 5, 5, rgb565(52, 211, 153));
             break;
         }
         case APP_TERMINAL: {

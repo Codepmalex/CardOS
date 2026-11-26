@@ -34,15 +34,15 @@ static void writeWavHeader(File& f, uint32_t dataBytes, uint32_t rate) {
     h[4] = fileSizeMinus8 & 0xFF; h[5] = (fileSizeMinus8 >> 8) & 0xFF;
     h[6] = (fileSizeMinus8 >> 16) & 0xFF; h[7] = (fileSizeMinus8 >> 24) & 0xFF;
     memcpy(h + 8, "WAVEfmt ", 8);
-    h[16] = 16; h[17] = 0; h[18] = 0; h[19] = 0; // PCM
-    h[20] = 1;  h[21] = 0;                      // Linear PCM
-    h[22] = 1;  h[23] = 0;                      // Mono
+    h[16] = 16; h[17] = 0; h[18] = 0; h[19] = 0;
+    h[20] = 1;  h[21] = 0;
+    h[22] = 1;  h[23] = 0;
     h[24] = rate & 0xFF; h[25] = (rate >> 8) & 0xFF;
     h[26] = (rate >> 16) & 0xFF; h[27] = (rate >> 24) & 0xFF;
     h[28] = byteRate & 0xFF; h[29] = (byteRate >> 8) & 0xFF;
     h[30] = (byteRate >> 16) & 0xFF; h[31] = (byteRate >> 24) & 0xFF;
-    h[32] = 2; h[33] = 0;                       // Block align
-    h[34] = 16; h[35] = 0;                      // Bits per sample
+    h[32] = 2; h[33] = 0;
+    h[34] = 16; h[35] = 0;
     memcpy(h + 36, "data", 4);
     h[40] = dataBytes & 0xFF; h[41] = (dataBytes >> 8) & 0xFF;
     h[42] = (dataBytes >> 16) & 0xFF; h[43] = (dataBytes >> 24) & 0xFF;
@@ -58,6 +58,7 @@ public:
     void onEnter() override {
         m_sel = 0;
         m_scroll = 0;
+        m_agcGain = 1.5f;
         refreshFiles();
     }
 
@@ -72,22 +73,40 @@ public:
             int done = s_doneBufIdx;
             if (done >= 0) {
                 s_doneBufIdx = -1;
+                // Measure peak & apply manual sensitivity or Auto AGC gain cleanly
+                int32_t peak = 1;
+                for (size_t i = 0; i < kChunkSamples; ++i) {
+                    int32_t v = s_micBuf[done][i];
+                    int32_t av = (v < 0) ? -v : v;
+                    if (av > peak) peak = av;
+                }
+                float gain = 1.0f;
+                if (g_settings.micAutoSens) {
+                    float desired = (peak > 120) ? (14000.0f / (float)peak) : 3.5f;
+                    desired = constrain(desired, 0.5f, 5.5f);
+                    m_agcGain = m_agcGain * 0.80f + desired * 0.20f;
+                    gain = m_agcGain;
+                } else {
+                    gain = 0.35f * (float)constrain((int)g_settings.micSensitivity, 1, 10);
+                }
+
+                uint32_t acc = 0;
+                for (size_t i = 0; i < kChunkSamples; ++i) {
+                    int32_t s = (int32_t)roundf((float)s_micBuf[done][i] * gain);
+                    if (s > 32767) s = 32767;
+                    else if (s < -32768) s = -32768;
+                    s_micBuf[done][i] = (int16_t)s;
+                    if ((i & 7) == 0) acc += (uint32_t)(s < 0 ? -s : s);
+                }
+                m_level = (uint16_t)(acc / (kChunkSamples / 8));
+
                 if (m_recFile) {
                     m_recFile.write((const uint8_t*)s_micBuf[done], kChunkSamples * sizeof(int16_t));
                     m_recBytes += (uint32_t)(kChunkSamples * sizeof(int16_t));
                 }
-                // Compute peak for level meter
-                uint32_t acc = 0;
-                for (size_t i = 0; i < kChunkSamples; i += 8) {
-                    int32_t v = s_micBuf[done][i];
-                    acc += (uint32_t)(v < 0 ? -v : v);
-                }
-                m_level = (uint16_t)(acc / (kChunkSamples / 8));
-                // Re-queue finished buffer
                 M5Cardputer.Mic.record(s_micBuf[done], kChunkSamples, kRecRate, false);
             }
             if (M5Cardputer.Mic.isRecording() < 2) {
-                // Keep queue topped up
                 int next = s_nextQueueIdx;
                 if (M5Cardputer.Mic.record(s_micBuf[next], kChunkSamples, kRecRate, false)) {
                     s_nextQueueIdx = (next + 1) % 2;
@@ -107,7 +126,7 @@ public:
                     acc += (uint32_t)(v < 0 ? -v : v);
                 }
                 m_level = samples > 0 ? (uint16_t)(acc / max<size_t>(1, samples / 8)) : 0;
-                M5Cardputer.Speaker.setVolume(g_settings.volume);
+                M5Cardputer.Speaker.setVolume(g_settings.mediaVolume);
                 M5Cardputer.Speaker.playRaw(m_playBuf[m_playTriIdx], samples, m_playRate, false, 1, 0, false);
                 m_playTriIdx = (m_playTriIdx + 1) % 3;
             }
@@ -123,9 +142,43 @@ public:
             switchApp(APP_HOME);
             return;
         }
-        if (ev.code == CK_CHAR && (ev.ch == 'r' || ev.ch == 'R')) {
-            if (m_recording) stopRecording();
-            else startRecording();
+        if (ev.code == CK_CHAR) {
+            if (ev.ch == 'r' || ev.ch == 'R') {
+                if (m_recording) stopRecording();
+                else startRecording();
+                return;
+            }
+            if (ev.ch == 'a' || ev.ch == 'A') {
+                g_settings.micAutoSens = !g_settings.micAutoSens;
+                saveSettings();
+                showToast(g_settings.micAutoSens ? "Mic Sens: AUTO" : "Mic Sens: Manual", 1200);
+                return;
+            }
+            if (ev.ch == '=' || ev.ch == '+') {
+                g_settings.mediaVolume = (uint8_t)constrain((int)g_settings.mediaVolume + 20, 0, 255);
+                M5Cardputer.Speaker.setVolume(g_settings.mediaVolume);
+                saveSettings();
+                showToast(("Media Vol: " + String((g_settings.mediaVolume * 100) / 255) + "%").c_str(), 900);
+                return;
+            }
+            if (ev.ch == '-' || ev.ch == '_') {
+                g_settings.mediaVolume = (uint8_t)constrain((int)g_settings.mediaVolume - 20, 0, 255);
+                M5Cardputer.Speaker.setVolume(g_settings.mediaVolume);
+                saveSettings();
+                showToast(("Media Vol: " + String((g_settings.mediaVolume * 100) / 255) + "%").c_str(), 900);
+                return;
+            }
+        }
+        if (isNavLeft(ev)) {
+            g_settings.micAutoSens = false;
+            g_settings.micSensitivity = (uint8_t)constrain((int)g_settings.micSensitivity - 1, 1, 10);
+            saveSettings();
+            return;
+        }
+        if (isNavRight(ev)) {
+            g_settings.micAutoSens = false;
+            g_settings.micSensitivity = (uint8_t)constrain((int)g_settings.micSensitivity + 1, 1, 10);
+            saveSettings();
             return;
         }
         if (m_recording) return;
@@ -153,31 +206,41 @@ public:
         spr.fillScreen(th.bg);
         ui::drawStatusBar(spr, "Voice Recorder", true);
 
-        // Live meter card (y: 18..54)
+        // Live meter & settings card (y: 18..54)
         spr.fillRoundRect(6, 18, SCREEN_W - 12, 36, 5, th.surface);
         spr.drawRoundRect(6, 18, SCREEN_W - 12, 36, 5, m_recording ? th.err : (m_playing ? th.ok : th.border));
         spr.setTextSize(1);
 
         if (m_recording) {
             uint32_t sec = (millis() - m_recStartMs) / 1000;
-            char tb[32];
-            snprintf(tb, sizeof(tb), "REC %02u:%02u (%uKB)", (unsigned)(sec / 60), (unsigned)(sec % 60),
+            char tb[28];
+            snprintf(tb, sizeof(tb), "REC %02u:%02u %uKB", (unsigned)(sec / 60), (unsigned)(sec % 60),
                      (unsigned)(m_recBytes / 1024));
-            spr.fillCircle(14, 27, 3, th.err);
+            spr.fillCircle(13, 27, 3, th.err);
             spr.setTextColor(th.err);
-            spr.drawString(tb, 22, 23);
+            spr.drawString(tb, 20, 23);
         } else if (m_playing && !m_files.empty()) {
             spr.setTextColor(th.ok);
             String nm = m_files[m_sel].name;
-            if ((int)nm.length() > 26) nm = nm.substring(0, 25) + "~";
-            spr.drawString("PLAY: " + nm, 12, 23);
+            if ((int)nm.length() > 14) nm = nm.substring(0, 13) + "~";
+            spr.drawString("PLAY:" + nm, 11, 23);
         } else {
             spr.setTextColor(g_sys.sdMounted ? th.textDim : th.warn);
-            spr.drawString(g_sys.sdMounted ? "Ready (16kHz WAV on SD)" : "Insert SD card to record", 12, 23);
+            spr.drawString(g_sys.sdMounted ? "Ready (WAV SD)" : "No SD card", 11, 23);
         }
 
+        // Right badges: Mic Sensitivity (AUTO pill or X/10) + Master Media Vol
+        spr.setTextDatum(TR_DATUM);
+        char vb[28];
+        snprintf(vb, sizeof(vb), "%s  V:%d%%",
+                 g_settings.micAutoSens ? "Sens:AUTO" : ("Sens:" + String(g_settings.micSensitivity) + "/10").c_str(),
+                 (int)((g_settings.mediaVolume * 100) / 255));
+        spr.setTextColor(g_settings.micAutoSens ? th.ok : th.warn);
+        spr.drawString(vb, SCREEN_W - 11, 23);
+        spr.setTextDatum(TL_DATUM);
+
         // Animated audio meter bars
-        int barFill = min(14, (int)(m_level / 350));
+        int barFill = min(14, (int)(m_level / 420));
         for (int i = 0; i < 14; ++i) {
             int bx = 12 + i * 15;
             bool lit = (i < barFill);
@@ -189,7 +252,7 @@ public:
         if (m_files.empty()) {
             spr.setTextColor(th.textDim);
             spr.drawString("No recordings in /recordings", 12, 74);
-            spr.drawString("Press [R] to start recording!", 12, 88);
+            spr.drawString("[R] Record   [A] Auto Mic Sens", 12, 88);
         } else {
             for (int r = 0; r < 4; ++r) {
                 int idx = m_scroll + r;
@@ -211,7 +274,7 @@ public:
         }
 
         spr.setTextColor(th.textDim);
-        spr.drawString(m_recording ? "[R/ESC] Stop & Save" : "[R]Rec [Ent]Play [X]Del [ESC]Home", 6, 125);
+        spr.drawString(m_recording ? "[R]Stop [A]Auto [</>]Sens" : "[R]Rec [A]Auto [</>]Sens [+/-]Vol", 6, 125);
         ui::drawToastOverlay(spr);
     }
 
@@ -227,6 +290,7 @@ private:
     uint32_t m_recBytes = 0;
     uint32_t m_playRate = kRecRate;
     uint16_t m_level = 0;
+    float m_agcGain = 1.5f;
     int16_t m_playBuf[3][kChunkSamples];
     uint8_t m_playTriIdx = 0;
 
@@ -271,6 +335,7 @@ private:
         writeWavHeader(m_recFile, 0, kRecRate);
         m_recBytes = 0;
         m_recStartMs = millis();
+        m_agcGain = 1.5f;
 
         auto cfg = M5Cardputer.Mic.config();
         cfg.sample_rate = kRecRate;
@@ -309,6 +374,7 @@ private:
         stopMusicPlayback();
         M5Cardputer.Mic.end();
         M5Cardputer.Speaker.begin();
+        M5Cardputer.Speaker.setVolume(g_settings.mediaVolume);
 
         m_playFile = SD.open(path.c_str(), FILE_READ);
         if (!m_playFile || m_playFile.size() <= 44) {
@@ -337,4 +403,3 @@ private:
 } // namespace
 
 App* createRecorderApp() { return new RecorderApp(); }
-

@@ -6,7 +6,7 @@
 constexpr int SCREEN_W = 240;
 constexpr int SCREEN_H = 135;
 constexpr int STATUS_BAR_H = 16;
-constexpr const char* CARDOS_VERSION = "2.2";
+constexpr const char* CARDOS_VERSION = "2.3";
 
 // Cardputer ADV Hardware Pins
 constexpr int SD_SCK_PIN  = 40;
@@ -40,8 +40,7 @@ enum AppId : uint8_t {
     APP_FLAPPY,
     APP_MUSIC,
     APP_RECORDER,
-    APP_PHONE,
-    APP_MACLINK,
+    APP_APOS,
     APP_TERMINAL,
     APP_LUA_RUNNER,
     APP_COUNT

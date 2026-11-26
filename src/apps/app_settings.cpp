@@ -5,10 +5,13 @@
 #include "../hardware.h"
 #include "../net_weather.h"
 #include "../app_installer.h"
+#include "../bt_manager.h"
+#include "../bsod.h"
 #include <time.h>
 #include <vector>
 
 extern void switchApp(AppId id);
+extern M5Canvas* getScreenCanvas();
 
 namespace {
 
@@ -18,6 +21,7 @@ enum SetCat : uint8_t {
     CAT_BUTTONS_AUDIO,
     CAT_LED,
     CAT_WIFI,
+    CAT_BLUETOOTH,
     CAT_TIME_WEATHER,
     CAT_NOTIF,
     CAT_SYSTEM,
@@ -30,6 +34,7 @@ static const char* CAT_NAMES[CAT_COUNT] = {
     "Buttons & Audio",
     "RGB LED",
     "Wi-Fi Network",
+    "Bluetooth",
     "Time & Weather",
     "Notifications",
     "System & Info"
@@ -45,6 +50,7 @@ public:
         m_wifiScanning = false;
         m_wifiPassPrompt = false;
         m_cityPrompt = false;
+        m_btNamePrompt = false;
         m_tzMapMode = false;
         m_notifAppMode = false;
     }
@@ -91,6 +97,10 @@ public:
         }
         if (m_cityPrompt) {
             handleCityPromptInput(ev);
+            return;
+        }
+        if (m_btNamePrompt) {
+            handleBtNameInput(ev);
             return;
         }
         if (m_wifiScanning) {
@@ -168,6 +178,18 @@ public:
             return;
         }
 
+        if (m_btNamePrompt) {
+            ui::drawStatusBar(spr, "Bluetooth Name");
+            spr.drawRoundRect(12, 30, SCREEN_W - 24, 72, 5, acc);
+            spr.setTextSize(1);
+            spr.setTextColor(acc);
+            spr.drawString("Device Name:", 20, 42);
+            spr.fillRoundRect(20, 60, SCREEN_W - 40, 18, 3, th.surface2);
+            spr.setTextColor(th.text);
+            spr.drawString(m_pendingBtName + "_", 25, 65);
+            return;
+        }
+
         if (m_cityPrompt) {
             ui::drawStatusBar(spr, "Weather City");
             spr.drawRoundRect(12, 30, SCREEN_W - 24, 72, 5, acc);
@@ -221,11 +243,35 @@ public:
                 bool sel = (idx == m_catSel);
                 spr.fillRoundRect(6, y, SCREEN_W - 16, 19, 4, sel ? th.surface2 : th.surface);
                 if (sel) spr.drawRoundRect(6, y, SCREEN_W - 16, 19, 4, acc);
+                int tx = 12;
+                if (idx == CAT_WIFI) {
+                    uint16_t wc = g_sys.wifiConnected ? th.ok : acc;
+                    spr.fillCircle(16, y + 13, 1, wc);
+                    spr.drawArc(16, y + 13, 4, 4, 225, 315, wc);
+                    spr.drawArc(16, y + 13, 7, 7, 225, 315, wc);
+                    tx = 27;
+                } else if (idx == CAT_BLUETOOTH) {
+                    uint16_t bc = g_sys.btConnected ? th.ok : (g_sys.btEnabled ? acc : th.textDim);
+                    spr.drawFastVLine(16, y + 4, 10, bc);
+                    spr.drawLine(16, y + 4, 19, y + 6, bc);
+                    spr.drawLine(19, y + 6, 14, y + 10, bc);
+                    spr.drawLine(16, y + 13, 19, y + 11, bc);
+                    spr.drawLine(19, y + 11, 14, y + 7, bc);
+                    tx = 27;
+                }
                 spr.setTextColor(sel ? acc : th.text);
-                spr.drawString(CAT_NAMES[idx], 12, y + 6);
-                spr.setTextColor(th.textDim);
+                spr.drawString(CAT_NAMES[idx], tx, y + 6);
                 spr.setTextDatum(TR_DATUM);
-                spr.drawString(">", SCREEN_W - 14, y + 6);
+                if (idx == CAT_WIFI) {
+                    spr.setTextColor(g_sys.wifiConnected ? th.ok : th.textDim);
+                    spr.drawString(g_sys.wifiConnected ? "ON >" : "OFF >", SCREEN_W - 14, y + 6);
+                } else if (idx == CAT_BLUETOOTH) {
+                    spr.setTextColor(g_sys.btEnabled ? th.ok : th.textDim);
+                    spr.drawString(g_sys.btEnabled ? "ON >" : "OFF >", SCREEN_W - 14, y + 6);
+                } else {
+                    spr.setTextColor(th.textDim);
+                    spr.drawString(">", SCREEN_W - 14, y + 6);
+                }
                 spr.setTextDatum(TL_DATUM);
             }
             ui::drawScrollbar(spr, SCREEN_W - 6, 20, 104, CAT_COUNT, 5, m_catScroll);
@@ -272,6 +318,9 @@ private:
 
     bool m_cityPrompt = false;
     String m_pendingCity;
+
+    bool m_btNamePrompt = false;
+    String m_pendingBtName;
 
     bool m_tzMapMode = false;
     int m_tzMapSel = 5;
@@ -712,12 +761,13 @@ private:
         switch (c) {
             case CAT_APPEARANCE:    return 3;
             case CAT_DISPLAY:       return 8;
-            case CAT_BUTTONS_AUDIO: return 5;
+            case CAT_BUTTONS_AUDIO: return 6;
             case CAT_LED:           return 4;
             case CAT_WIFI:          return 4;
+            case CAT_BLUETOOTH:     return 4;
             case CAT_TIME_WEATHER:  return 5;
             case CAT_NOTIF:         return 10;
-            case CAT_SYSTEM:        return 8;
+            case CAT_SYSTEM:        return 9;
             default:                return 0;
         }
     }
@@ -744,7 +794,8 @@ private:
                 else if (idx == 1) { lbl = "G0 Short Press"; val = String(BTN_ACTION_NAMES[g_settings.btnShortAction % BTN_ACT_COUNT]) + " v"; }
                 else if (idx == 2) { lbl = "G0 Long Press"; val = String(BTN_ACTION_NAMES[g_settings.btnLongAction % BTN_ACT_COUNT]) + " v"; }
                 else if (idx == 3) { lbl = "Key Click Sound"; val = g_settings.keyClick ? "ON" : "OFF"; }
-                else               { lbl = "Speaker Volume"; val = String((g_settings.volume * 100) / 255) + "%"; }
+                else if (idx == 4) { lbl = "Key Click Vol"; val = String((g_settings.volume * 100) / 255) + "%"; }
+                else               { lbl = "Media Output Vol"; val = String((g_settings.mediaVolume * 100) / 255) + "%"; }
                 break;
             case CAT_LED:
                 if (idx == 0)      { lbl = "RGB LED"; val = g_settings.ledEnabled ? "ON" : "OFF"; }
@@ -761,6 +812,12 @@ private:
                 else if (idx == 1) { lbl = "Status"; val = g_sys.wifiStatus; }
                 else if (idx == 2) { lbl = "Auto-Connect"; val = g_settings.wifiAutoConnect ? "ON" : "OFF"; }
                 else          { lbl = "Disconnect"; val = g_sys.wifiConnected ? "[Enter]" : "-"; }
+                break;
+            case CAT_BLUETOOTH:
+                if (idx == 0)      { lbl = "Bluetooth"; val = g_settings.btEnabled ? "ON" : "OFF"; }
+                else if (idx == 1) { lbl = "Device Name"; val = g_settings.btName; }
+                else if (idx == 2) { lbl = "Status"; val = btStatusText(); }
+                else               { lbl = "Disconnect"; val = btIsConnected() ? "[Enter]" : "-"; }
                 break;
             case CAT_TIME_WEATHER:
                 if (idx == 0)      { lbl = "Clock Format"; val = g_settings.use24h ? "24 Hour" : "12h AM/PM"; }
@@ -788,7 +845,8 @@ private:
                 else if (idx == 3) { lbl = "App1 Slot"; val = strlen(g_settings.installedBinName) ? "Loaded" : "Empty"; }
                 else if (idx == 4) { lbl = "Boot App1 Now"; val = "[Enter]"; }
                 else if (idx == 5) { lbl = "Software Update"; val = String("v") + CARDOS_VERSION + " [Ent]"; }
-                else if (idx == 6) { lbl = "Factory Reset"; val = "[Enter]"; }
+                else if (idx == 6) { lbl = "Test BSOD"; val = "[Enter]"; }
+                else if (idx == 7) { lbl = "Factory Reset"; val = "[Enter]"; }
                 else               { lbl = "Reboot CardOS"; val = "[Enter]"; }
                 break;
             default: break;
@@ -846,10 +904,13 @@ private:
                 else if (idx == 1) g_settings.btnShortAction = (g_settings.btnShortAction + d + BTN_ACT_COUNT) % BTN_ACT_COUNT;
                 else if (idx == 2) g_settings.btnLongAction = (g_settings.btnLongAction + d + BTN_ACT_COUNT) % BTN_ACT_COUNT;
                 else if (idx == 3) g_settings.keyClick = !g_settings.keyClick;
-                else {
+                else if (idx == 4) {
                     int v = (int)g_settings.volume + d * 25;
                     g_settings.volume = (uint8_t)constrain(v, 0, 255);
-                    M5Cardputer.Speaker.setVolume(g_settings.volume);
+                } else {
+                    int mv = (int)g_settings.mediaVolume + d * 25;
+                    g_settings.mediaVolume = (uint8_t)constrain(mv, 0, 255);
+                    M5Cardputer.Speaker.setVolume(g_settings.mediaVolume);
                 }
                 break;
             case CAT_LED:
@@ -874,6 +935,18 @@ private:
                 } else if (idx == 3 && d > 0) {
                     requestWifiDisconnect();
                     showToast("Disconnected", 1200);
+                }
+                break;
+            case CAT_BLUETOOTH:
+                if (idx == 0) {
+                    btSetEnabled(!g_settings.btEnabled);
+                    showToast(g_settings.btEnabled ? "Bluetooth ON" : "Bluetooth OFF", 1300);
+                } else if (idx == 1 && d > 0) {
+                    m_pendingBtName = g_settings.btName;
+                    m_btNamePrompt = true;
+                } else if (idx == 3 && d > 0) {
+                    btDisconnect();
+                    showToast("BT Disconnected", 1200);
                 }
                 break;
             case CAT_TIME_WEATHER:
@@ -930,10 +1003,15 @@ private:
                     runGithubOsUpdateInteractive();
                     return;
                 } else if (idx == 6 && d > 0) {
+                    if (getScreenCanvas()) {
+                        showBsodScreen(*getScreenCanvas(), "TEST_BSOD_TRIGGERED", "Triggered manually from Settings -> System", true);
+                    }
+                    return;
+                } else if (idx == 7 && d > 0) {
                     factoryResetSettings();
                     applyPowerProfile();
                     showToast("Settings reset!", 1500);
-                } else if (idx == 7 && d > 0) {
+                } else if (idx == 8 && d > 0) {
                     saveWeatherAndTimeCache();
                     delay(40);
                     rebootToCardOS();
@@ -1014,6 +1092,30 @@ private:
         }
         if (ev.code == CK_CHAR && ev.ch >= 32 && ev.ch <= 126 && m_pendingCity.length() < 32) {
             m_pendingCity += ev.ch;
+        }
+    }
+
+    void handleBtNameInput(const InputEvent& ev) {
+        if (ev.code == CK_ESC || (ev.code == CK_CHAR && ev.ch == '`')) {
+            m_btNamePrompt = false;
+            return;
+        }
+        if (ev.code == CK_BACKSPACE && !m_pendingBtName.isEmpty()) {
+            m_pendingBtName.remove(m_pendingBtName.length() - 1);
+            return;
+        }
+        if (ev.code == CK_ENTER) {
+            m_pendingBtName.trim();
+            if (m_pendingBtName.isEmpty()) m_pendingBtName = "CardOS";
+            strlcpy(g_settings.btName, m_pendingBtName.c_str(), sizeof(g_settings.btName));
+            saveSettings();
+            btApplyName();
+            m_btNamePrompt = false;
+            showToast("BT name saved", 1300);
+            return;
+        }
+        if (ev.code == CK_CHAR && ev.ch >= 32 && ev.ch <= 126 && m_pendingBtName.length() < 20) {
+            m_pendingBtName += ev.ch;
         }
     }
 };

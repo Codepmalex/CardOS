@@ -39,7 +39,7 @@ public:
         m_bufPos = 0;
         m_triIdx = 0;
         M5Cardputer.Speaker.begin();
-        M5Cardputer.Speaker.setVolume(g_settings.volume);
+        M5Cardputer.Speaker.setVolume(g_settings.mediaVolume);
         return true;
     }
 
@@ -90,7 +90,7 @@ private:
             acc += (uint32_t)(v < 0 ? -v : v);
         }
         m_level = (uint16_t)(acc / (kChunkSamples / 8));
-        M5Cardputer.Speaker.setVolume(g_settings.volume);
+        M5Cardputer.Speaker.setVolume(g_settings.mediaVolume);
         M5Cardputer.Speaker.playRaw(m_triBuf[m_triIdx], kChunkSamples,
                                     (uint32_t)(hertz > 0 ? hertz : 44100),
                                     false, 1, (int)m_ch, false);
@@ -510,15 +510,17 @@ public:
                 return;
             }
             if (ev.ch == '=' || ev.ch == '+') {
-                g_settings.volume = (uint8_t)constrain((int)g_settings.volume + 20, 0, 255);
-                M5Cardputer.Speaker.setVolume(g_settings.volume);
+                g_settings.mediaVolume = (uint8_t)constrain((int)g_settings.mediaVolume + 20, 0, 255);
+                M5Cardputer.Speaker.setVolume(g_settings.mediaVolume);
                 saveSettings();
+                showToast(("Media Vol: " + String((g_settings.mediaVolume * 100) / 255) + "%").c_str(), 900);
                 return;
             }
             if (ev.ch == '-' || ev.ch == '_') {
-                g_settings.volume = (uint8_t)constrain((int)g_settings.volume - 20, 0, 255);
-                M5Cardputer.Speaker.setVolume(g_settings.volume);
+                g_settings.mediaVolume = (uint8_t)constrain((int)g_settings.mediaVolume - 20, 0, 255);
+                M5Cardputer.Speaker.setVolume(g_settings.mediaVolume);
                 saveSettings();
+                showToast(("Media Vol: " + String((g_settings.mediaVolume * 100) / 255) + "%").c_str(), 900);
                 return;
             }
             if (ev.ch == 'p' || ev.ch == 'P') {
@@ -660,7 +662,7 @@ private:
         char vb[42];
         snprintf(vb, sizeof(vb), "%s  Vol:%d%%  Out:Spk/AUX",
                  g_sys.music.playing ? (g_sys.music.paused ? "PAUSED" : "PLAYING") : "STOPPED",
-                 (int)((g_settings.volume * 100) / 255));
+                 (int)((g_settings.mediaVolume * 100) / 255));
         spr.drawString(vb, 14, 102);
 
         spr.drawString("[Spc]Play [</>]Skip [S]Shf [+/-]Vol", 6, 124);

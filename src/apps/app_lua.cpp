@@ -400,9 +400,8 @@ public:
             return;
         }
 
-        // Release audio / BLE RAM before booting Lua VM
+        // Release audio RAM before booting Lua VM
         stopMusicPlayback();
-        stopPhoneBleIfRunning();
 
         m_L = lua_newstate(luaAlloc, nullptr);
         if (!m_L) {

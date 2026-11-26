@@ -11,6 +11,8 @@
 #include "usb_msc_mode.h"
 #include "ir_tx.h"
 #include "ui.h"
+#include "bt_manager.h"
+#include "bsod.h"
 #include "apps/apps_registry.h"
 
 static M5Canvas s_spr(&M5Cardputer.Display);
@@ -46,6 +48,7 @@ void switchApp(AppId id) {
         s_apps[prev]->onExit();
     }
     g_sys.activeApp = id;
+    bsodRecordHeartbeat(getAppName(id));
     s_apps[id]->onEnter();
 
     if (s_uiReady && !g_sys.screenAsleep && !g_sys.deepSleepMode && prev != id) {
@@ -117,8 +120,7 @@ bool openAppByName(const String& name) {
     if (q == "flappy" || q == "bird") { switchApp(APP_FLAPPY); return true; }
     if (q == "music" || q == "mp3" || q == "audio" || q == "player") { switchApp(APP_MUSIC); return true; }
     if (q == "voice" || q == "rec" || q == "recorder" || q == "mic") { switchApp(APP_RECORDER); return true; }
-    if (q == "phone" || q == "bt" || q == "bluetooth" || q == "sms" || q == "calls") { switchApp(APP_PHONE); return true; }
-    if (q == "mac" || q == "maclink" || q == "laptop" || q == "ap" || q == "remote") { switchApp(APP_MACLINK); return true; }
+    if (q == "apos" || q == "ap" || q == "portal" || q == "hotspot") { switchApp(APP_APOS); return true; }
     if (q == "shell" || q == "term" || q == "terminal" || q == "cli" || q == "cmd") { switchApp(APP_TERMINAL); return true; }
     return false;
 }
@@ -176,6 +178,7 @@ void setup() {
     M5Cardputer.Display.setBrightness(g_settings.brightness);
     s_spr.setColorDepth(8);
     s_spr.createSprite(SCREEN_W, SCREEN_H);
+    bsodCheckOnBoot(s_spr);
 
     // Show animated loading screen immediately (no progress bar) while init runs
     s_bootAnimStop = false;
@@ -199,6 +202,7 @@ void setup() {
 
     M5Cardputer.Display.setRotation(g_settings.flipScreen ? 2 : 0);
     initHardware();
+    if (g_settings.btEnabled) btSetEnabled(true);
     initIrTx();
     applyTimezoneConfig();
     initNetWeather();
@@ -222,8 +226,7 @@ void setup() {
     s_apps[APP_FLAPPY]     = createFlappyApp();
     s_apps[APP_MUSIC]      = createMusicApp();
     s_apps[APP_RECORDER]   = createRecorderApp();
-    s_apps[APP_PHONE]      = createPhoneApp();
-    s_apps[APP_MACLINK]    = createMacLinkApp();
+    s_apps[APP_APOS]       = createApOsApp();
     s_apps[APP_TERMINAL]   = createTerminalApp();
     s_apps[APP_LUA_RUNNER] = createLuaRunnerApp();
 
@@ -298,7 +301,14 @@ void loop() {
 
     tickHardware(hadInput);
     tickMusicPlayer();
-    tickPhoneLink();
+    tickBluetooth();
+    tickApOS();
+
+    static uint32_t s_lastCrumbMs = 0;
+    if (millis() - s_lastCrumbMs >= 1000) {
+        s_lastCrumbMs = millis();
+        bsodRecordHeartbeat(getAppName(g_sys.activeApp));
+    }
 
     static uint32_t s_lastSaverDrawMs = 0;
     if (g_sys.screensaverActive) {

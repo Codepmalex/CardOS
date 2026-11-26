@@ -43,8 +43,15 @@ struct Settings {
     uint8_t btnShortAction = BTN_ACT_HOME;
     uint8_t btnLongAction  = BTN_ACT_SLEEP;
     bool keyClick = false;
-    uint8_t volume = 90;             // 0..255
+    uint8_t volume = 90;             // 0..255 (UI/Key clicks; notifications use per-app rule volume)
+    uint8_t mediaVolume = 140;       // 0..255 (Master Media output for Music/Voice apps)
+    uint8_t micSensitivity = 5;      // 1..10 manual Voice mic gain
+    bool micAutoSens = true;         // Auto AGC mic sensitivity in Voice Recorder
     uint8_t deviceProfile = PROF_SILENT;
+
+    // Bluetooth
+    bool btEnabled = false;
+    char btName[24] = "CardOS";
 
     // RGB LED
     bool ledEnabled = true;
@@ -81,12 +88,13 @@ struct Settings {
     char minerCoin[16] = "xtm-rx";
     char minerWallet[128] = "";
 
-    // Games, App Store & MacLink
+    // Games, App Store & ApOS
     uint16_t snakeHighScore = 0;
     uint16_t flappyHighScore = 0;
     bool autoUpdateApps = false;
     char storeUrl[128] = "https://raw.githubusercontent.com/Codepmalex/CardOS/main/store/catalog.json";
-    char macBridgeIp[32] = "192.168.4.2";
+    char apSsid[32] = "CardOS-ApOS";
+    char apPass[32] = "cardos1234";
 
     // Installed third-party app tracking (in app1 partition)
     char installedBinName[64] = "";
@@ -189,6 +197,8 @@ struct SystemState {
     char wifiIp[20] = "0.0.0.0";
     int wifiRssi = 0;
     bool ntpSynced = false;
+    bool btEnabled = false;
+    bool btConnected = false;
 
     int batteryPct = 100;
     int batteryMv = 4000;

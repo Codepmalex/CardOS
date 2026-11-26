@@ -647,9 +647,9 @@ static void netWorkerTask(void* param) {
             }
         }
 
-        // Auto-refresh weather (pause background TLS while Lua / Store / Phone / Recorder active)
+        // Auto-refresh weather (pause background TLS while Lua / Store / ApOS / Recorder active)
         bool busyTls = (g_sys.activeApp == APP_LUA_RUNNER || g_sys.activeApp == APP_STORE ||
-                        g_sys.activeApp == APP_PHONE || g_sys.activeApp == APP_RECORDER);
+                        g_sys.activeApp == APP_APOS || g_sys.activeApp == APP_RECORDER);
         uint32_t mult = g_settings.lowPowerMode ? 2UL : 1UL;
         uint32_t refreshMs = max((uint32_t)5, (uint32_t)g_settings.weatherRefreshMin) * 60000UL * mult;
         bool due = g_sys.wifiConnected && !busyTls &&

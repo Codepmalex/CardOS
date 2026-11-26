@@ -41,8 +41,7 @@ static const AppKeyPair APP_KEYS[] = {
     {APP_FLAPPY,    "flappy"},
     {APP_MUSIC,     "music"},
     {APP_RECORDER,  "voice"},
-    {APP_PHONE,     "phone"},
-    {APP_MACLINK,   "maclink"},
+    {APP_APOS,      "apos"},
     {APP_TERMINAL,  "shell"}
 };
 static constexpr int APP_KEYS_COUNT = sizeof(APP_KEYS) / sizeof(APP_KEYS[0]);
@@ -259,6 +258,11 @@ static void saveSettingsToNvs() {
     prefs.putUChar("btnL", g_settings.btnLongAction);
     prefs.putBool("kclick", g_settings.keyClick);
     prefs.putUChar("vol", g_settings.volume);
+    prefs.putUChar("mVol", g_settings.mediaVolume);
+    prefs.putUChar("micSens", g_settings.micSensitivity);
+    prefs.putBool("micAuto", g_settings.micAutoSens);
+    prefs.putBool("btOn", g_settings.btEnabled);
+    prefs.putString("btName", g_settings.btName);
     prefs.putUChar("prof", g_settings.deviceProfile);
     prefs.putBool("ledOn", g_settings.ledEnabled);
     prefs.putUChar("ledMode", g_settings.ledMode);
@@ -292,7 +296,8 @@ static void saveSettingsToNvs() {
     prefs.putUShort("flpHi", g_settings.flappyHighScore);
     prefs.putBool("autoUpd", g_settings.autoUpdateApps);
     prefs.putString("stUrl", g_settings.storeUrl);
-    prefs.putString("macIp", g_settings.macBridgeIp);
+    prefs.putString("apSsid", g_settings.apSsid);
+    prefs.putString("apPass", g_settings.apPass);
 
     prefs.putString("instBin", g_settings.installedBinName);
     prefs.putUInt("instSz", g_settings.installedBinSize);
@@ -318,6 +323,11 @@ static void saveSettingsToFile() {
     doc["btnLong"] = g_settings.btnLongAction;
     doc["keyClick"] = g_settings.keyClick;
     doc["volume"] = g_settings.volume;
+    doc["mediaVolume"] = g_settings.mediaVolume;
+    doc["micSens"] = g_settings.micSensitivity;
+    doc["micAuto"] = g_settings.micAutoSens;
+    doc["btEnabled"] = g_settings.btEnabled;
+    doc["btName"] = g_settings.btName;
     doc["profile"] = g_settings.deviceProfile;
     doc["ledEnabled"] = g_settings.ledEnabled;
     doc["ledMode"] = g_settings.ledMode;
@@ -354,7 +364,8 @@ static void saveSettingsToFile() {
     doc["flappyHigh"] = g_settings.flappyHighScore;
     doc["autoUpdate"] = g_settings.autoUpdateApps;
     doc["storeUrl"] = g_settings.storeUrl;
-    doc["macBridgeIp"] = g_settings.macBridgeIp;
+    doc["apSsid"] = g_settings.apSsid;
+    doc["apPass"] = g_settings.apPass;
 
     JsonArray sw = doc["savedWifis"].to<JsonArray>();
     for (int i = 0; i < MAX_SAVED_WIFIS; ++i) {
@@ -390,6 +401,12 @@ void loadSettings() {
     g_settings.btnLongAction     = prefs.getUChar("btnL", BTN_ACT_SLEEP) % BTN_ACT_COUNT;
     g_settings.keyClick          = prefs.getBool("kclick", false);
     g_settings.volume            = prefs.getUChar("vol", 90);
+    g_settings.mediaVolume       = prefs.getUChar("mVol", 140);
+    g_settings.micSensitivity    = constrain(prefs.getUChar("micSens", 5), 1, 10);
+    g_settings.micAutoSens       = prefs.getBool("micAuto", true);
+    g_settings.btEnabled         = prefs.getBool("btOn", false);
+    String btnm = prefs.getString("btName", "CardOS");
+    strlcpy(g_settings.btName, btnm.c_str(), sizeof(g_settings.btName));
     g_settings.deviceProfile     = prefs.getUChar("prof", PROF_SILENT) % PROF_COUNT;
     g_settings.ledEnabled        = prefs.getBool("ledOn", true);
     g_settings.ledMode           = prefs.getUChar("ledMode", LED_NOTIFY) % LED_MODE_COUNT;
@@ -441,8 +458,10 @@ void loadSettings() {
         stUrl = "https://raw.githubusercontent.com/Codepmalex/CardOS/main/store/catalog.json";
     }
     strlcpy(g_settings.storeUrl, stUrl.c_str(), sizeof(g_settings.storeUrl));
-    String mIp = prefs.getString("macIp", "192.168.4.2");
-    strlcpy(g_settings.macBridgeIp, mIp.c_str(), sizeof(g_settings.macBridgeIp));
+    String aSs = prefs.getString("apSsid", "CardOS-ApOS");
+    String aPw = prefs.getString("apPass", "cardos1234");
+    strlcpy(g_settings.apSsid, aSs.c_str(), sizeof(g_settings.apSsid));
+    strlcpy(g_settings.apPass, aPw.c_str(), sizeof(g_settings.apPass));
 
     String instName = prefs.getString("instBin", "");
     strlcpy(g_settings.installedBinName, instName.c_str(), sizeof(g_settings.installedBinName));
@@ -477,6 +496,11 @@ void syncSettingsWithStorage() {
     if (doc["btnLong"].is<int>())        g_settings.btnLongAction = doc["btnLong"].as<int>() % BTN_ACT_COUNT;
     if (doc["keyClick"].is<bool>())      g_settings.keyClick = doc["keyClick"].as<bool>();
     if (doc["volume"].is<int>())         g_settings.volume = constrain(doc["volume"].as<int>(), 0, 255);
+    if (doc["mediaVolume"].is<int>())    g_settings.mediaVolume = constrain(doc["mediaVolume"].as<int>(), 0, 255);
+    if (doc["micSens"].is<int>())        g_settings.micSensitivity = constrain(doc["micSens"].as<int>(), 1, 10);
+    if (doc["micAuto"].is<bool>())       g_settings.micAutoSens = doc["micAuto"].as<bool>();
+    if (doc["btEnabled"].is<bool>())     g_settings.btEnabled = doc["btEnabled"].as<bool>();
+    if (doc["btName"].is<const char*>()) strlcpy(g_settings.btName, doc["btName"].as<const char*>(), sizeof(g_settings.btName));
     if (doc["profile"].is<int>())        g_settings.deviceProfile = doc["profile"].as<int>() % PROF_COUNT;
     if (doc["ledEnabled"].is<bool>())    g_settings.ledEnabled = doc["ledEnabled"].as<bool>();
     if (doc["ledMode"].is<int>())        g_settings.ledMode = doc["ledMode"].as<int>() % LED_MODE_COUNT;
@@ -523,9 +547,8 @@ void syncSettingsWithStorage() {
         }
         strlcpy(g_settings.storeUrl, u.c_str(), sizeof(g_settings.storeUrl));
     }
-    if (doc["macBridgeIp"].is<const char*>()) {
-        strlcpy(g_settings.macBridgeIp, doc["macBridgeIp"].as<const char*>(), sizeof(g_settings.macBridgeIp));
-    }
+    if (doc["apSsid"].is<const char*>()) strlcpy(g_settings.apSsid, doc["apSsid"].as<const char*>(), sizeof(g_settings.apSsid));
+    if (doc["apPass"].is<const char*>()) strlcpy(g_settings.apPass, doc["apPass"].as<const char*>(), sizeof(g_settings.apPass));
 
     if (doc["savedWifis"].is<JsonArray>()) {
         for (int i = 0; i < MAX_SAVED_WIFIS; ++i) g_settings.savedWifis[i] = SavedWifi();

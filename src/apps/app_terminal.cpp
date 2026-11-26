@@ -3,11 +3,13 @@
 #include "../state.h"
 #include "../storage.h"
 #include "../ui.h"
+#include "../bsod.h"
 #include <SD.h>
 #include <WiFi.h>
 #include <time.h>
 
 extern void switchApp(AppId id);
+extern M5Canvas* getScreenCanvas();
 
 namespace {
 
@@ -18,7 +20,7 @@ public:
 
     void onEnter() override {
         if (m_log.isEmpty()) {
-            m_log = "CardOS Shell v" + String(CARDOS_VERSION) + "\nType 'help' or '@mac <cmd>'.";
+            m_log = "CardOS Shell v" + String(CARDOS_VERSION) + "\nType 'help' to list commands.";
         }
         m_cwd = "/";
         m_scroll = 0;
@@ -106,12 +108,6 @@ private:
 
     void runCmd(const String& raw) {
         appendOut("> " + raw);
-        if (raw.startsWith("@mac ")) {
-            String out;
-            macLinkExecCommand(raw.substring(5), out);
-            appendOut(out);
-            return;
-        }
         int sp = raw.indexOf(' ');
         String op = (sp < 0) ? raw : raw.substring(0, sp);
         String arg = (sp < 0) ? "" : raw.substring(sp + 1);
@@ -119,7 +115,12 @@ private:
         arg.trim();
 
         if (op == "help") {
-            appendOut("ls cd pwd cat mkdir rm free uptime ver wifi ip date echo clear @mac <cmd>");
+            appendOut("ls cd pwd cat mkdir rm free uptime ver wifi ip date echo clear bsod");
+        } else if (op == "bsod") {
+            if (getScreenCanvas()) {
+                showBsodScreen(*getScreenCanvas(), "SHELL_BSOD_TEST", "Triggered manually from CardOS Shell", true);
+            }
+            return;
         } else if (op == "clear") {
             m_log = "";
             m_scroll = 0;
