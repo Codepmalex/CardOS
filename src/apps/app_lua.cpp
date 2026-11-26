@@ -1,0 +1,385 @@
+#include "apps_registry.h"
+#include "../config.h"
+#include "../state.h"
+#include "../storage.h"
+#include "../ui.h"
+#include "../ir_tx.h"
+#include <stdlib.h>
+#include <string.h>
+
+extern "C" {
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+}
+
+extern void switchApp(AppId id);
+
+namespace {
+
+static String s_pendingLuaAppId = "";
+static M5Canvas* s_curSpr = nullptr;
+static bool s_exitRequested = false;
+
+static uint16_t luaColor(const char* name) {
+    const auto& th = activeTheme();
+    uint16_t acc = activeAccent();
+    if (!name) return th.text;
+    if (strcmp(name, "bg") == 0)       return th.bg;
+    if (strcmp(name, "surface") == 0)  return th.surface;
+    if (strcmp(name, "surface2") == 0) return th.surface2;
+    if (strcmp(name, "accent") == 0)   return acc;
+    if (strcmp(name, "accent2") == 0)  return th.accent2;
+    if (strcmp(name, "text") == 0)     return th.text;
+    if (strcmp(name, "dim") == 0)      return th.textDim;
+    if (strcmp(name, "border") == 0)   return th.border;
+    if (strcmp(name, "ok") == 0)       return th.ok;
+    if (strcmp(name, "warn") == 0)     return th.warn;
+    if (strcmp(name, "err") == 0)      return th.err;
+    return th.text;
+}
+
+static int l_clear(lua_State* L) {
+    (void)L;
+    if (s_curSpr) s_curSpr->fillScreen(activeTheme().bg);
+    return 0;
+}
+
+static int l_statusBar(lua_State* L) {
+    const char* title = luaL_optstring(L, 1, "App");
+    if (s_curSpr) ui::drawStatusBar(*s_curSpr, title);
+    return 0;
+}
+
+static int l_fillRect(lua_State* L) {
+    if (!s_curSpr) return 0;
+    int x = (int)luaL_checkinteger(L, 1);
+    int y = (int)luaL_checkinteger(L, 2);
+    int w = (int)luaL_checkinteger(L, 3);
+    int h = (int)luaL_checkinteger(L, 4);
+    int r = (int)luaL_optinteger(L, 5, 0);
+    uint16_t col = luaColor(luaL_optstring(L, 6, "surface"));
+    if (r > 0) s_curSpr->fillRoundRect(x, y, w, h, r, col);
+    else       s_curSpr->fillRect(x, y, w, h, col);
+    return 0;
+}
+
+static int l_drawRect(lua_State* L) {
+    if (!s_curSpr) return 0;
+    int x = (int)luaL_checkinteger(L, 1);
+    int y = (int)luaL_checkinteger(L, 2);
+    int w = (int)luaL_checkinteger(L, 3);
+    int h = (int)luaL_checkinteger(L, 4);
+    int r = (int)luaL_optinteger(L, 5, 0);
+    uint16_t col = luaColor(luaL_optstring(L, 6, "border"));
+    if (r > 0) s_curSpr->drawRoundRect(x, y, w, h, r, col);
+    else       s_curSpr->drawRect(x, y, w, h, col);
+    return 0;
+}
+
+static int l_circle(lua_State* L) {
+    if (!s_curSpr) return 0;
+    int x = (int)luaL_checkinteger(L, 1);
+    int y = (int)luaL_checkinteger(L, 2);
+    int r = (int)luaL_checkinteger(L, 3);
+    uint16_t col = luaColor(luaL_optstring(L, 4, "accent"));
+    bool filled = lua_toboolean(L, 5) != 0;
+    if (filled) s_curSpr->fillCircle(x, y, r, col);
+    else        s_curSpr->drawCircle(x, y, r, col);
+    return 0;
+}
+
+static int l_text(lua_State* L) {
+    if (!s_curSpr) return 0;
+    const char* s = luaL_optstring(L, 1, "");
+    int x = (int)luaL_checkinteger(L, 2);
+    int y = (int)luaL_checkinteger(L, 3);
+    uint16_t col = luaColor(luaL_optstring(L, 4, "text"));
+    int sz = (int)luaL_optinteger(L, 5, 1);
+    const char* align = luaL_optstring(L, 6, "L");
+    uint8_t datum = TL_DATUM;
+    if (align[0] == 'C' || align[0] == 'c')      datum = MC_DATUM;
+    else if (align[0] == 'R' || align[0] == 'r') datum = TR_DATUM;
+    else if (align[0] == 'T' || align[0] == 't') datum = TC_DATUM;
+
+    s_curSpr->setTextSize(constrain(sz, 1, 3));
+    s_curSpr->setTextColor(col);
+    s_curSpr->setTextDatum(datum);
+    s_curSpr->drawString(s, x, y);
+    s_curSpr->setTextDatum(TL_DATUM);
+    s_curSpr->setTextSize(1);
+    return 0;
+}
+
+static int l_scrollbar(lua_State* L) {
+    if (!s_curSpr) return 0;
+    int x = (int)luaL_checkinteger(L, 1);
+    int y = (int)luaL_checkinteger(L, 2);
+    int h = (int)luaL_checkinteger(L, 3);
+    int total = (int)luaL_checkinteger(L, 4);
+    int vis = (int)luaL_checkinteger(L, 5);
+    int scroll = (int)luaL_checkinteger(L, 6);
+    ui::drawScrollbar(*s_curSpr, x, y, h, total, vis, scroll);
+    return 0;
+}
+
+static int l_toast(lua_State* L) {
+    const char* msg = luaL_optstring(L, 1, "");
+    uint32_t ms = (uint32_t)luaL_optinteger(L, 2, 1600);
+    showToast(msg, ms);
+    return 0;
+}
+
+static int l_millis(lua_State* L) {
+    lua_pushnumber(L, (lua_Number)millis());
+    return 1;
+}
+
+static int l_exit(lua_State* L) {
+    (void)L;
+    s_exitRequested = true;
+    return 0;
+}
+
+static int l_irSend(lua_State* L) {
+    const char* proto = luaL_checkstring(L, 1);
+    const char* hexStr = luaL_checkstring(L, 2);
+    uint8_t bits = (uint8_t)luaL_optinteger(L, 3, 32);
+    if (!hexStr || !hexStr[0]) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    uint64_t code = (uint64_t)strtoull(hexStr, nullptr, 16);
+    bool ok = irTxSend(proto, code, bits);
+    lua_pushboolean(L, ok ? 1 : 0);
+    return 1;
+}
+
+static int l_readFile(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    if (!g_sys.sdMounted && !g_sys.spiffsMounted) {
+        lua_pushnil(L);
+        return 1;
+    }
+    if (!activeFS().exists(path)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    String txt = readTextFile(path, 32768);
+    lua_pushlstring(L, txt.c_str(), txt.length());
+    return 1;
+}
+
+static int l_writeFile(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    size_t len = 0;
+    const char* data = luaL_checklstring(L, 2, &len);
+    String txt;
+    txt.reserve(len + 1);
+    for (size_t i = 0; i < len; ++i) txt += data[i];
+    bool ok = writeTextFile(path, txt);
+    lua_pushboolean(L, ok ? 1 : 0);
+    return 1;
+}
+
+static int l_fileExists(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    bool ex = (g_sys.sdMounted || g_sys.spiffsMounted) && activeFS().exists(path);
+    lua_pushboolean(L, ex ? 1 : 0);
+    return 1;
+}
+
+static const luaL_Reg CARDOS_LUA_FUNCS[] = {
+    {"clear",      l_clear},
+    {"statusBar",  l_statusBar},
+    {"fillRect",   l_fillRect},
+    {"drawRect",   l_drawRect},
+    {"circle",     l_circle},
+    {"text",       l_text},
+    {"scrollbar",  l_scrollbar},
+    {"toast",      l_toast},
+    {"millis",     l_millis},
+    {"exit",       l_exit},
+    {"irSend",     l_irSend},
+    {"readFile",   l_readFile},
+    {"writeFile",  l_writeFile},
+    {"fileExists", l_fileExists},
+    {nullptr, nullptr}
+};
+
+class LuaRunnerApp : public App {
+public:
+    AppId id() const override { return APP_LUA_RUNNER; }
+    const char* name() const override { return "Lua App"; }
+
+    void onEnter() override {
+        cleanupVm();
+        m_errorMsg = "";
+        s_exitRequested = false;
+        m_appId = s_pendingLuaAppId;
+
+        if (m_appId.isEmpty()) {
+            m_errorMsg = "No app selected.";
+            return;
+        }
+        String path = "/store/" + m_appId + ".lua";
+        if ((!g_sys.sdMounted && !g_sys.spiffsMounted) || !activeFS().exists(path.c_str())) {
+            m_errorMsg = "Missing " + path;
+            return;
+        }
+        String script = readTextFile(path.c_str(), 49152);
+        if (script.isEmpty()) {
+            m_errorMsg = "Failed to read script";
+            return;
+        }
+
+        m_L = luaL_newstate();
+        if (!m_L) {
+            m_errorMsg = "Out of RAM for Lua VM";
+            return;
+        }
+        luaL_openlibs(m_L);
+        luaL_register(m_L, "cardos", CARDOS_LUA_FUNCS);
+        lua_pop(m_L, 1);
+
+        if (luaL_loadbuffer(m_L, script.c_str(), script.length(), path.c_str()) != 0 ||
+            lua_pcall(m_L, 0, 0, 0) != 0) {
+            m_errorMsg = String(lua_tostring(m_L, -1));
+            cleanupVm();
+            return;
+        }
+
+        callLuaHook("onEnter");
+        if (s_exitRequested) {
+            s_exitRequested = false;
+            switchApp(APP_HOME);
+        }
+    }
+
+    void onExit() override {
+        cleanupVm();
+    }
+
+    void onTick() override {
+        if (!m_L) return;
+        callLuaHook("onTick");
+        if (s_exitRequested) {
+            s_exitRequested = false;
+            switchApp(APP_HOME);
+        }
+    }
+
+    void onInput(const InputEvent& ev) override {
+        if (!m_L) {
+            if (isNavBack(ev) || ev.code == CK_ENTER) {
+                switchApp(APP_HOME);
+            }
+            return;
+        }
+
+        const char* k = "char";
+        char chStr[2] = {0, 0};
+        switch (ev.code) {
+            case CK_UP:        k = "up";    break;
+            case CK_DOWN:      k = "down";  break;
+            case CK_LEFT:      k = "left";  break;
+            case CK_RIGHT:     k = "right"; break;
+            case CK_ENTER:     k = "enter"; break;
+            case CK_ESC:       k = "esc";   break;
+            case CK_BACKSPACE: k = "back";  break;
+            case CK_TAB:       k = "tab";   break;
+            case CK_DEL:       k = "del";   break;
+            case CK_CHAR:
+                k = "char";
+                chStr[0] = ev.ch;
+                break;
+            default:
+                return;
+        }
+
+        lua_getglobal(m_L, "onInput");
+        if (lua_isfunction(m_L, -1)) {
+            lua_pushstring(m_L, k);
+            lua_pushstring(m_L, chStr);
+            if (lua_pcall(m_L, 2, 0, 0) != 0) {
+                m_errorMsg = String(lua_tostring(m_L, -1));
+                cleanupVm();
+            }
+        } else {
+            lua_pop(m_L, 1);
+            if (isNavBack(ev)) s_exitRequested = true;
+        }
+
+        if (s_exitRequested) {
+            s_exitRequested = false;
+            switchApp(APP_HOME);
+        }
+    }
+
+    void render(M5Canvas& spr) override {
+        const auto& th = activeTheme();
+        uint16_t acc = activeAccent();
+
+        if (!m_L) {
+            spr.fillScreen(th.bg);
+            ui::drawStatusBar(spr, "Store App Error");
+            spr.fillRoundRect(8, 24, SCREEN_W - 16, 86, 6, th.surface);
+            spr.drawRoundRect(8, 24, SCREEN_W - 16, 86, 6, th.err);
+            spr.setTextSize(1);
+            spr.setTextColor(th.err);
+            spr.drawString("Lua Error:", 16, 32);
+            spr.setTextColor(th.text);
+            int y = 46;
+            for (int pos = 0; pos < (int)m_errorMsg.length() && y < 96; pos += 33) {
+                spr.drawString(m_errorMsg.substring(pos, min((int)m_errorMsg.length(), pos + 33)), 16, y);
+                y += 11;
+            }
+            spr.setTextColor(acc);
+            spr.drawString("[ESC / Enter] Return Home", 16, 98);
+            ui::drawToastOverlay(spr);
+            return;
+        }
+
+        s_curSpr = &spr;
+        spr.fillScreen(th.bg);
+        callLuaHook("onRender");
+        s_curSpr = nullptr;
+        ui::drawToastOverlay(spr);
+    }
+
+private:
+    lua_State* m_L = nullptr;
+    String m_appId;
+    String m_errorMsg;
+
+    void cleanupVm() {
+        s_curSpr = nullptr;
+        if (m_L) {
+            lua_close(m_L);
+            m_L = nullptr;
+        }
+    }
+
+    void callLuaHook(const char* fn) {
+        if (!m_L) return;
+        lua_getglobal(m_L, fn);
+        if (lua_isfunction(m_L, -1)) {
+            if (lua_pcall(m_L, 0, 0, 0) != 0) {
+                m_errorMsg = String(lua_tostring(m_L, -1));
+                cleanupVm();
+            }
+        } else {
+            lua_pop(m_L, 1);
+        }
+    }
+};
+
+} // namespace
+
+App* createLuaRunnerApp() { return new LuaRunnerApp(); }
+
+void launchLuaApp(const String& appId) {
+    s_pendingLuaAppId = appId;
+    switchApp(APP_LUA_RUNNER);
+}
+

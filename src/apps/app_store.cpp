@@ -238,15 +238,37 @@ private:
         String body;
         int code = 0;
         showToast(("Downloading " + it.name + "...").c_str(), 1200);
-        if (httpGetText(pkgUrl, body, code)) {
-            ensureDir("/store");
-            writeTextFile(("/store/" + it.id + ".json").c_str(), body);
-            installStoreAppKey(it.id);
-            showToast((it.name + " added to Home!").c_str(), 1800);
-        } else {
+        if (!httpGetText(pkgUrl, body, code)) {
             snprintf(m_statusMsg, sizeof(m_statusMsg), "DL HTTP %d: push GitHub?", code);
             showToast(("Download err HTTP " + String(code)).c_str(), 2000);
+            return;
         }
+
+        // If manifest specifies a downloadable Lua script, fetch it genuinely from GitHub
+        JsonDocument doc;
+        if (deserializeJson(doc, body) == DeserializationError::Ok) {
+            const char* scriptRel = doc["script"] | "";
+            if (strlen(scriptRel) > 0) {
+                String scriptUrl = resolvePkgUrl(String(scriptRel));
+                String scriptBody;
+                int sCode = 0;
+                if (!httpGetText(scriptUrl, scriptBody, sCode) || scriptBody.isEmpty()) {
+                    snprintf(m_statusMsg, sizeof(m_statusMsg), "Script HTTP %d", sCode);
+                    showToast(("Script err HTTP " + String(sCode)).c_str(), 2000);
+                    return;
+                }
+                ensureDir("/store");
+                if (!writeTextFile(("/store/" + it.id + ".lua").c_str(), scriptBody)) {
+                    showToast("SD write failed (.lua)", 1800);
+                    return;
+                }
+            }
+        }
+
+        ensureDir("/store");
+        writeTextFile(("/store/" + it.id + ".json").c_str(), body);
+        installStoreAppKey(it.id);
+        showToast((it.name + " added to Home!").c_str(), 1800);
     }
 
     void handleStoreInput(const InputEvent& ev) {
@@ -268,8 +290,12 @@ private:
         } else if (ev.code == CK_ENTER && !m_filtered.empty()) {
             const auto& it = m_catalog[m_filtered[m_storeSel]];
             if (isStoreAppInstalled(it.id)) {
-                AppId aid = appIdFromKey(it.id);
-                if (aid != APP_COUNT) switchApp(aid);
+                if (isLuaStoreAppInstalled(it.id)) {
+                    launchLuaApp(it.id);
+                } else {
+                    AppId aid = appIdFromKey(it.id);
+                    if (aid != APP_COUNT) switchApp(aid);
+                }
             } else {
                 downloadAndInstall(it);
             }

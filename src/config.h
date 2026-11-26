@@ -37,7 +37,7 @@ enum AppId : uint8_t {
     APP_SYSINFO,
     APP_SNAKE,
     APP_FLAPPY,
-    APP_IRTV,
+    APP_LUA_RUNNER,
     APP_COUNT
 };
 

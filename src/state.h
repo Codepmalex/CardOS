@@ -260,6 +260,8 @@ const char* findSavedWifiPass(const char* ssid);
 // GitHub App Store installation helpers (downloadable apps start uninstalled)
 bool isStoreAppKey(const String& key);
 bool isStoreAppInstalled(const String& key);
+bool isLuaStoreAppInstalled(const String& key);
+String getStoreAppDisplayName(const String& key);
 void installStoreAppKey(const String& key);
 void uninstallStoreAppKey(const String& key);
 bool isWidgetAvailable(uint8_t widgetId);

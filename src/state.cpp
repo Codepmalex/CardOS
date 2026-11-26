@@ -38,8 +38,7 @@ static const AppKeyPair APP_KEYS[] = {
     {APP_MINER,     "miner"},
     {APP_SYSINFO,   "sysinfo"},
     {APP_SNAKE,     "snake"},
-    {APP_FLAPPY,    "flappy"},
-    {APP_IRTV,      "irtv"}
+    {APP_FLAPPY,    "flappy"}
 };
 static constexpr int APP_KEYS_COUNT = sizeof(APP_KEYS) / sizeof(APP_KEYS[0]);
 
@@ -123,7 +122,28 @@ bool removeSavedWifi(const char* ssid) {
 }
 
 bool isStoreAppKey(const String& key) {
-    return key == "weather" || key == "miner" || key == "flappy" || key == "irtv";
+    return key == "weather" || key == "miner" || key == "flappy";
+}
+
+bool isLuaStoreAppInstalled(const String& key) {
+    if (key.isEmpty() || (!g_sys.sdMounted && !g_sys.spiffsMounted)) return false;
+    String luaPath = "/store/" + key + ".lua";
+    return activeFS().exists(luaPath.c_str());
+}
+
+String getStoreAppDisplayName(const String& key) {
+    if (g_sys.sdMounted || g_sys.spiffsMounted) {
+        String pkg = "/store/" + key + ".json";
+        if (activeFS().exists(pkg.c_str())) {
+            String raw = readTextFile(pkg.c_str(), 4096);
+            JsonDocument doc;
+            if (!raw.isEmpty() && deserializeJson(doc, raw) == DeserializationError::Ok) {
+                const char* nm = doc["name"] | "";
+                if (strlen(nm) > 0) return String(nm);
+            }
+        }
+    }
+    return key;
 }
 
 bool isStoreAppInstalled(const String& key) {
@@ -134,7 +154,7 @@ bool isStoreAppInstalled(const String& key) {
 }
 
 void installStoreAppKey(const String& key) {
-    if (appIdFromKey(key) == APP_COUNT) return;
+    if (appIdFromKey(key) == APP_COUNT && !isLuaStoreAppInstalled(key)) return;
     if (!isStoreAppInstalled(key)) {
         g_layout.installedStoreApps.push_back(key);
     }
@@ -162,8 +182,10 @@ void uninstallStoreAppKey(const String& key) {
         }
     }
     String pkg = "/store/" + key + ".json";
+    String lua = "/store/" + key + ".lua";
     if (g_sys.sdMounted || g_sys.spiffsMounted) {
         if (activeFS().exists(pkg.c_str())) activeFS().remove(pkg.c_str());
+        if (activeFS().exists(lua.c_str())) activeFS().remove(lua.c_str());
     }
     ensureValidHomeWidget();
     saveHomeLayout();
@@ -639,13 +661,13 @@ void loadHomeLayout() {
         if (!raw.isEmpty() && deserializeJson(doc, raw) == DeserializationError::Ok) {
             for (JsonVariant v : doc["installedStore"].as<JsonArray>()) {
                 String k = v.as<String>();
-                if (isStoreAppKey(k) && !isStoreAppInstalled(k)) {
+                if ((isStoreAppKey(k) || isLuaStoreAppInstalled(k)) && !isStoreAppInstalled(k)) {
                     g_layout.installedStoreApps.push_back(k);
                 }
             }
             for (JsonVariant v : doc["order"].as<JsonArray>()) {
                 String k = v.as<String>();
-                if (appIdFromKey(k) != APP_COUNT) {
+                if (appIdFromKey(k) != APP_COUNT || isLuaStoreAppInstalled(k)) {
                     bool dup = false;
                     for (auto& ex : g_layout.order) if (ex == k) { dup = true; break; }
                     if (!dup) g_layout.order.push_back(k);
@@ -673,6 +695,16 @@ void loadHomeLayout() {
     for (int i = 0; i < APP_KEYS_COUNT; ++i) {
         String k = APP_KEYS[i].key;
         if (isStoreAppKey(k) && !isStoreAppInstalled(k)) continue;
+        bool found = false;
+        for (auto& ex : g_layout.order) if (ex == k) { found = true; break; }
+        if (!found) {
+            g_layout.order.push_back(k);
+            changed = true;
+        }
+    }
+    // Add any installed downloadable Lua apps missing from order
+    for (const auto& k : g_layout.installedStoreApps) {
+        if (!isLuaStoreAppInstalled(k)) continue;
         bool found = false;
         for (auto& ex : g_layout.order) if (ex == k) { found = true; break; }
         if (!found) {

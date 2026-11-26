@@ -115,7 +115,6 @@ bool openAppByName(const String& name) {
     if (q == "sysinfo" || q == "stats" || q == "system") { switchApp(APP_SYSINFO); return true; }
     if (q == "snake") { switchApp(APP_SNAKE); return true; }
     if (q == "flappy" || q == "bird") { switchApp(APP_FLAPPY); return true; }
-    if (q == "ir" || q == "irtv" || q == "tv" || q == "remote") { switchApp(APP_IRTV); return true; }
     return false;
 }
 
@@ -213,9 +212,9 @@ void setup() {
     s_apps[APP_SLEEP]     = createSleepApp();
     s_apps[APP_MINER]     = createMinerApp();
     s_apps[APP_SYSINFO]   = createSysInfoApp();
-    s_apps[APP_SNAKE]     = createSnakeApp();
-    s_apps[APP_FLAPPY]    = createFlappyApp();
-    s_apps[APP_IRTV]      = createIrTvApp();
+    s_apps[APP_SNAKE]      = createSnakeApp();
+    s_apps[APP_FLAPPY]     = createFlappyApp();
+    s_apps[APP_LUA_RUNNER] = createLuaRunnerApp();
 
     // Pre-initialize Calendar & Notes counts for widgets/badges
     s_apps[APP_CALENDAR]->onEnter();

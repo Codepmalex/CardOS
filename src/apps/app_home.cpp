@@ -15,8 +15,10 @@ namespace {
 
 struct HomeTile {
     bool isBin = false;
+    bool isLua = false;
     AppId stockId = APP_HOME;
     String label;
+    String luaId;
     String binPath;
     uint32_t binSize = 0;
 };
@@ -283,12 +285,19 @@ private:
         m_tiles.clear();
         for (const auto& k : g_layout.order) {
             AppId aid = appIdFromKey(k);
-            if (aid == APP_COUNT) continue;
-            HomeTile t;
-            t.isBin = false;
-            t.stockId = aid;
-            t.label = getAppName(aid);
-            m_tiles.push_back(t);
+            if (aid != APP_COUNT) {
+                HomeTile t;
+                t.stockId = aid;
+                t.label = getAppName(aid);
+                m_tiles.push_back(t);
+            } else if (isLuaStoreAppInstalled(k)) {
+                HomeTile t;
+                t.isLua = true;
+                t.stockId = APP_LUA_RUNNER;
+                t.luaId = k;
+                t.label = getStoreAppDisplayName(k);
+                m_tiles.push_back(t);
+            }
         }
 
         // Also show pinned SD .bin apps + any .bin apps if user hasn't explicitly unpinned
@@ -347,7 +356,9 @@ private:
     void launchSelectedTile() {
         if (m_selIdx < 0 || m_selIdx >= (int)m_tiles.size()) return;
         const auto& t = m_tiles[m_selIdx];
-        if (!t.isBin) {
+        if (t.isLua) {
+            launchLuaApp(t.luaId);
+        } else if (!t.isBin) {
             switchApp(t.stockId);
         } else {
             installAndBootBinInteractive(t.binPath, t.label);
@@ -498,8 +509,8 @@ private:
                 spr.drawRoundRect(x, y, cellW, cellH, 5, sel ? acc : th.border);
 
                 const auto& t = m_tiles[idx];
-                uint16_t iconCol = sel ? acc : (t.isBin ? th.warn : th.accent2);
-                ui::drawAppIcon(spr, x + cellW / 2, y + 12, t.stockId, iconCol, t.isBin);
+                uint16_t iconCol = sel ? acc : (t.isBin ? th.warn : (t.isLua ? acc : th.accent2));
+                ui::drawAppIcon(spr, x + cellW / 2, y + 12, t.isLua ? APP_LUA_RUNNER : t.stockId, iconCol, t.isBin);
 
                 String lbl = t.label;
                 if ((int)lbl.length() > 8) lbl = lbl.substring(0, 8);

@@ -18,7 +18,10 @@ App* createMinerApp();
 App* createSysInfoApp();
 App* createSnakeApp();
 App* createFlappyApp();
-App* createIrTvApp();
+App* createLuaRunnerApp();
+
+// Launch a downloaded Store Lua script app (/store/<appId>.lua)
+void launchLuaApp(const String& appId);
 
 // Shared helper to install & boot a .bin app with live UI progress
 bool installAndBootBinInteractive(const String& path, const String& displayName);
