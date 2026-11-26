@@ -1,9 +1,11 @@
 #include "apps_registry.h"
+#include "../bsod.h"
 #include "../config.h"
 #include "../state.h"
 #include "../storage.h"
 #include "../ui.h"
 #include "../ir_tx.h"
+#include <ArduinoJson.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -18,9 +20,21 @@ extern void switchApp(AppId id);
 namespace {
 
 static String s_pendingLuaAppId = "";
+static String s_activeLuaLabel = "";
 static M5Canvas* s_curSpr = nullptr;
 static bool s_exitRequested = false;
 static size_t s_lastFailSize = 0;
+
+// Sequential cursor cache for cardos.readLine() so looping 1..N lines is O(N) instead of O(N^2)
+static String s_rlPath = "";
+static int    s_rlLine = 0;
+static size_t s_rlOffset = 0;
+
+static void invalidateReadLineCache() {
+    s_rlPath = "";
+    s_rlLine = 0;
+    s_rlOffset = 0;
+}
 
 static void* luaAlloc(void* ud, void* ptr, size_t osize, size_t nsize) {
     (void)ud;
@@ -223,6 +237,7 @@ static int l_writeFile(lua_State* L) {
     txt.reserve(len + 1);
     for (size_t i = 0; i < len; ++i) txt += data[i];
     bool ok = writeTextFile(path, txt);
+    invalidateReadLineCache();
     lua_pushboolean(L, ok ? 1 : 0);
     return 1;
 }
@@ -253,7 +268,11 @@ static int l_countLines(lua_State* L) {
         if (n <= 0) break;
         for (int i = 0; i < n; ++i) {
             if (buf[i] == '\n') {
-                if (hasChars) { count++; hasChars = false; }
+                if (hasChars) {
+                    count++;
+                    hasChars = false;
+                    if ((count & 31) == 0) yield();
+                }
             } else if (buf[i] != '\r') {
                 hasChars = true;
             }
@@ -281,9 +300,15 @@ static int l_readLine(lua_State* L) {
     size_t lineLen = 0;
     uint8_t buf[128];
     int cur = 0;
+    if (s_rlPath == path && target > s_rlLine && s_rlOffset > 0 && s_rlOffset <= f.size()) {
+        if (f.seek(s_rlOffset)) {
+            cur = s_rlLine;
+        }
+    }
     bool found = false;
 
     while (f.available() && !found) {
+        size_t chunkStart = (size_t)f.position();
         int n = f.read(buf, sizeof(buf));
         if (n <= 0) break;
         for (int i = 0; i < n; ++i) {
@@ -293,9 +318,13 @@ static int l_readLine(lua_State* L) {
                 if (lineLen > 0) {
                     cur++;
                     if (cur == target) {
+                        s_rlPath = path;
+                        s_rlLine = target;
+                        s_rlOffset = chunkStart + (size_t)i + 1;
                         found = true;
                         break;
                     }
+                    if ((cur & 31) == 0) yield();
                     lineLen = 0;
                 }
             } else if (cur + 1 == target) {
@@ -309,6 +338,9 @@ static int l_readLine(lua_State* L) {
         }
     }
     if (!found && lineLen > 0 && cur + 1 == target) {
+        s_rlPath = path;
+        s_rlLine = target;
+        s_rlOffset = (size_t)f.size();
         found = true;
     }
     f.close();
@@ -384,6 +416,7 @@ public:
 
     void onEnter() override {
         cleanupVm();
+        invalidateReadLineCache();
         m_errorMsg = "";
         m_errScroll = 0;
         s_exitRequested = false;
@@ -391,9 +424,26 @@ public:
         m_appId = s_pendingLuaAppId;
 
         if (m_appId.isEmpty()) {
+            s_activeLuaLabel = "";
             recordLuaError("init", "No app selected");
             return;
         }
+        s_activeLuaLabel = m_appId + ".lua";
+        String manPath = "/store/" + m_appId + ".json";
+        if ((g_sys.sdMounted || g_sys.spiffsMounted) && activeFS().exists(manPath.c_str())) {
+            String manTxt = readTextFile(manPath.c_str(), 1024);
+            if (!manTxt.isEmpty()) {
+                JsonDocument doc;
+                if (deserializeJson(doc, manTxt) == DeserializationError::Ok) {
+                    const char* nm = doc["name"] | "";
+                    if (nm[0]) {
+                        s_activeLuaLabel = String(nm) + " (" + m_appId + ".lua)";
+                    }
+                }
+            }
+        }
+        bsodRecordHeartbeat(("Lua: " + s_activeLuaLabel).c_str());
+
         String path = "/store/" + m_appId + ".lua";
         if ((!g_sys.sdMounted && !g_sys.spiffsMounted) || !activeFS().exists(path.c_str())) {
             recordLuaError("init", ("Missing " + path).c_str());
@@ -446,6 +496,8 @@ public:
 
     void onExit() override {
         cleanupVm();
+        invalidateReadLineCache();
+        s_activeLuaLabel = "";
     }
 
     void onTick() override {
@@ -590,6 +642,10 @@ private:
 } // namespace
 
 App* createLuaRunnerApp() { return new LuaRunnerApp(); }
+
+String getCurrentLuaAppLabel() {
+    return s_activeLuaLabel;
+}
 
 void launchLuaApp(const String& appId) {
     s_pendingLuaAppId = appId;

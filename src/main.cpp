@@ -34,11 +34,22 @@ static void bootAnimTask(void* param) {
     vTaskDelete(nullptr);
 }
 
+extern String getCurrentLuaAppLabel();
+
 M5Canvas* getScreenCanvas() { return &s_spr; }
 
 const char* getAppName(AppId id) {
     if (id < APP_COUNT && s_apps[id]) return s_apps[id]->name();
     return "Unknown";
+}
+
+static String getBsodAppLabel(AppId id) {
+    if (id == APP_LUA_RUNNER) {
+        String lbl = getCurrentLuaAppLabel();
+        return lbl.length() ? ("Lua: " + lbl) : String("Lua App");
+    }
+    if (id == APP_HOME) return "Home Screen";
+    return String(getAppName(id)) + " (Built-in)";
 }
 
 void switchApp(AppId id) {
@@ -48,7 +59,7 @@ void switchApp(AppId id) {
         s_apps[prev]->onExit();
     }
     g_sys.activeApp = id;
-    bsodRecordHeartbeat(getAppName(id));
+    bsodRecordHeartbeat(getBsodAppLabel(id).c_str());
     s_apps[id]->onEnter();
 
     if (s_uiReady && !g_sys.screenAsleep && !g_sys.deepSleepMode && prev != id) {
@@ -178,6 +189,7 @@ void setup() {
     M5Cardputer.Display.setBrightness(g_settings.brightness);
     s_spr.setColorDepth(8);
     s_spr.createSprite(SCREEN_W, SCREEN_H);
+    initSerialCtl();
     bsodCheckOnBoot(s_spr);
 
     // Show animated loading screen immediately (no progress bar) while init runs
@@ -188,7 +200,6 @@ void setup() {
     g_sys.imuReady = M5.Imu.isEnabled();
 
     initInput();
-    initSerialCtl();
     initStorage();
     syncSettingsWithStorage();
     loadHomeLayout();
@@ -307,7 +318,7 @@ void loop() {
     static uint32_t s_lastCrumbMs = 0;
     if (millis() - s_lastCrumbMs >= 1000) {
         s_lastCrumbMs = millis();
-        bsodRecordHeartbeat(getAppName(g_sys.activeApp));
+        bsodRecordHeartbeat(getBsodAppLabel(g_sys.activeApp).c_str());
     }
 
     static uint32_t s_lastSaverDrawMs = 0;

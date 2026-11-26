@@ -1,7 +1,7 @@
 local DB, SV = "/store/irtv_db.tsv", "/irtv_saved.tsv"
 local dbN, md = 0, "SAVED"
 local sv, sSel, sScr = {}, 1, 1
-local br, bSel, bScr = {}, 1, 1
+local br, bSel, bScr, idxB, idxT = {}, 1, 1, {}, {}
 local cnd, bIdx, bAuto, bStep, bMute, lastB = {}, 1, true, false, false, 0
 local bDev, cDev, act = nil, nil, 0
 local rnTxt, rnIdx, flMs, cmdLbl = "", 0, 0, ""
@@ -98,9 +98,16 @@ end
 local function buildBr()
   br = {}
   if dbN == 0 then cardos.toast("Re-download IR TV in Store", 1600); return false end
+  if #idxB ~= dbN then
+    idxB, idxT = {}, {}
+    for i = 1, dbN do
+      local b, t = brandType(cardos.readLine(DB, i))
+      idxB[i], idxT[i] = b, t
+    end
+  end
   local tvC, prC, seen, ord = 0, 0, {}, {}
   for i = 1, dbN do
-    local b, t = brandType(cardos.readLine(DB, i))
+    local b, t = idxB[i], idxT[i]
     if t == "Proj" then prC = prC + 1 else tvC = tvC + 1 end
     if not seen[b] then seen[b] = {l=b, k="B", m=b, c=1}; table.insert(ord, seen[b])
     else seen[b].c = seen[b].c + 1 end
@@ -154,7 +161,8 @@ local function kPick(k, c)
   elseif k == "enter" and #br > 0 then
     local bf = br[bSel]; cnd = {}
     for i = 1, dbN do
-      local b, t = brandType(cardos.readLine(DB, i))
+      local b, t = idxB[i], idxT[i]
+      if not b then b, t = brandType(cardos.readLine(DB, i)) end
       if bf.k == "A" or (bf.k == "T" and t ~= "Proj") or (bf.k == "P" and t == "Proj") or (bf.k == "B" and b == bf.m) then
         table.insert(cnd, i)
       end
@@ -343,7 +351,7 @@ local IN = {SAVED=kSaved, PICK=kPick, BRUTE=kBrute, CONFIRM=kConf, RENAME=kRen, 
 local RD = {SAVED=rSaved, PICK=rPick, BRUTE=rBrute, CONFIRM=rConf, RENAME=rRen, REMOTE=rRem}
 
 function onEnter()
-  dbN = cardos.countLines(DB); loadSv()
+  dbN = cardos.countLines(DB); idxB, idxT = {}, {}; loadSv()
   if sSel > #sv then sSel = math.max(1, #sv) end
   if sScr > math.max(1, #sv - 2) then sScr = math.max(1, #sv - 2) end
   flMs, cmdLbl, md = 0, "", "SAVED"

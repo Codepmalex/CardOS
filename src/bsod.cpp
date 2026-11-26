@@ -1,5 +1,6 @@
 #include "bsod.h"
 #include "config.h"
+#include "serial_ctl.h"
 #include "ui.h"
 #include <esp_system.h>
 #include <string.h>
@@ -8,14 +9,14 @@ namespace {
 
 struct CrashBreadcrumb {
     uint32_t magic;
-    char lastApp[20];
+    char lastApp[44];
     uint32_t lastFreeHeapKB;
     uint32_t lastUptimeSec;
     uint32_t checksum;
 };
 
 RTC_NOINIT_ATTR static CrashBreadcrumb s_crumb;
-static constexpr uint32_t kCrumbMagic = 0xCA4D05BB;
+static constexpr uint32_t kCrumbMagic = 0xCA4D05BC;
 
 uint32_t calcChecksum(const CrashBreadcrumb& c) {
     uint32_t h = c.magic ^ c.lastFreeHeapKB ^ (c.lastUptimeSec << 3);
@@ -77,6 +78,7 @@ void showBsodScreen(M5Canvas& spr, const char* stopCode, const char* detail, boo
     delay(250);
     while (true) {
         M5Cardputer.update();
+        pollSerialCtl();
         if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) break;
         if (M5Cardputer.BtnA.wasPressed()) break;
         delay(20);
