@@ -1,0 +1,2 @@
+{"id":"guess","name":"Number Guess","version":"1.0","description":"Guess the secret 1-100 number","script":"apps/guess.lua"}
+

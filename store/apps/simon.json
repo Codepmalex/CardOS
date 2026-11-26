@@ -1,0 +1,2 @@
+{"id":"simon","name":"Simon Says","version":"1.0","description":"Repeat flashing color sequences","script":"apps/simon.lua"}
+

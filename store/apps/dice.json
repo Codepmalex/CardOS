@@ -1,0 +1,2 @@
+{"id":"dice","name":"Dice Duel","version":"1.0","description":"Roll 2d6 against CPU to score points","script":"apps/dice.lua"}
+

@@ -1,0 +1,2 @@
+{"id":"connect4","name":"Connect 4","version":"1.0","description":"Classic 7x5 drop-disc strategy vs CPU","script":"apps/connect4.lua"}
+

@@ -1,8 +1,8 @@
 {
   "id": "irtv",
   "name": "IR TV",
-  "version": "1.1",
-  "description": "Universal TV & Projector IR remote with brute-force setup",
+  "version": "1.2",
+  "description": "Universal TV & Projector IR remote (128+ codes + Y/N confirm)",
   "script": "apps/irtv.lua",
   "data": "apps/irtv_db.tsv"
 }

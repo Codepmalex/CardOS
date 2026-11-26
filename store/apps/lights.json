@@ -1,0 +1,2 @@
+{"id":"lights","name":"Lights Out","version":"1.0","description":"Turn off every light on the 5x4 grid","script":"apps/lights.lua"}
+

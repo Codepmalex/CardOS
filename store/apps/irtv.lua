@@ -2,7 +2,7 @@ local DB, SV = "/store/irtv_db.tsv", "/irtv_saved.tsv"
 local dbN, md = 0, "SAVED"
 local sv, sSel, sScr = {}, 1, 1
 local br, bSel, bScr = {}, 1, 1
-local cnd, bIdx, bAuto, bMute, lastB = {}, 1, true, false, 0
+local cnd, bIdx, bAuto, bStep, bMute, lastB = {}, 1, true, false, false, 0
 local bDev, cDev, act = nil, nil, 0
 local rnTxt, rnIdx, flMs, cmdLbl = "", 0, 0, ""
 
@@ -159,21 +159,29 @@ local function kPick(k, c)
         table.insert(cnd, i)
       end
     end
-    if #cnd > 0 then bIdx, bAuto, md = 1, true, "BRUTE"; fireBrute() end
+    if #cnd > 0 then bIdx, bAuto, bStep, md = 1, true, false, "BRUTE"; fireBrute() end
   end
 end
 
 local function kBrute(k, c, cl)
   if isBk(k, c) then bAuto = false; md = "PICK"; return end
   if #cnd == 0 then return end
-  if k == "enter" then
+  if cl == "m" then bStep = not bStep; bAuto = not bStep; lastB = cardos.millis(); return end
+  if cl == "t" then bMute = not bMute; fireBrute(); return end
+  if cl == "f" then fireBrute(); return end
+  if k == "enter" or cl == "y" then
     bAuto = false; cDev = parseP(cardos.readLine(DB, cnd[bIdx]))
     if cDev then cDev.name = uniqName(cDev.b .. " " .. cDev.t); md = "CONFIRM" end
-  elseif k == "char" and c == " " then bAuto = not bAuto; lastB = cardos.millis()
-  elseif isLt(k, c) then bAuto = false; bIdx = ((bIdx - 2) % #cnd) + 1; fireBrute()
-  elseif isRt(k, c) then bAuto = false; bIdx = (bIdx % #cnd) + 1; fireBrute()
-  elseif cl == "f" then fireBrute()
-  elseif cl == "t" then bMute = not bMute; fireBrute() end
+    return
+  end
+  if bStep then
+    if cl == "n" or (k == "char" and c == " ") or isRt(k, c) then bIdx = (bIdx % #cnd) + 1; fireBrute()
+    elseif isLt(k, c) then bIdx = ((bIdx - 2) % #cnd) + 1; fireBrute() end
+  else
+    if k == "char" and c == " " then bAuto = not bAuto; lastB = cardos.millis()
+    elseif isLt(k, c) then bAuto = false; bIdx = ((bIdx - 2) % #cnd) + 1; fireBrute()
+    elseif isRt(k, c) then bAuto = false; bIdx = (bIdx % #cnd) + 1; fireBrute() end
+  end
 end
 
 local function kConf(k, c, cl)
@@ -275,12 +283,20 @@ local function rBrute()
   cardos.text("Code " .. bIdx .. " / " .. #cnd .. " (" .. p.t .. ")", 14, 27, "accent", 1, "L"); pulse(218, 34)
   cardos.text(trunc(p.b, 14), 14, 41, "text", 2, "L")
   cardos.text(p.m .. " (" .. p.p .. ")", 14, 61, "dim", 1, "L")
-  cardos.text(bAuto and "AUTO-BLAST" or "PAUSED", 14, 75, bAuto and "ok" or "warn", 1, "L")
-  cardos.text("Signal: " .. (bMute and "MUTE" or "POWER"), 226, 75, "text", 1, "R")
+  local stTxt = bStep and "STEP [Y/N] CONFIRM" or (bAuto and "AUTO-BLAST" or "PAUSED")
+  local stCol = bStep and "accent" or (bAuto and "ok" or "warn")
+  cardos.text(stTxt, 14, 75, stCol, 1, "L")
+  cardos.text("Sig: " .. (bMute and "MUTE" or "PWR"), 226, 75, "text", 1, "R")
   local fw = math.max(4, math.floor((220 * bIdx) / math.max(1, #cnd)))
   cardos.fillRect(10, 97, 220, 4, 2, "surface2"); cardos.fillRect(10, 97, fw, 4, 2, "accent")
-  cardos.fillRect(14, 104, 212, 16, 4, "ok"); cardos.text("[Enter] IT WORKED! Save TV", 120, 112, "bg", 1, "C")
-  cardos.text("[Spc]Pause [< / >]Step [T]Pwr/Mute [F]Fire", 6, 124, "dim", 1, "L")
+  if bStep then
+    cardos.fillRect(10, 104, 106, 16, 4, "ok"); cardos.text("[Y/Ent] WORKED", 63, 112, "bg", 1, "C")
+    cardos.fillRect(124, 104, 106, 16, 4, "err"); cardos.text("[N/Spc] NO ->", 177, 112, "bg", 1, "C")
+    cardos.text("[<]Prev [F]Fire [T]Pwr/Mt [M]AutoMode", 6, 124, "dim", 1, "L")
+  else
+    cardos.fillRect(14, 104, 212, 16, 4, "ok"); cardos.text("[Enter] IT WORKED! Save TV", 120, 112, "bg", 1, "C")
+    cardos.text("[Spc]Pause [</>]Step [M]Y/N [T]Pwr/Mt", 6, 124, "dim", 1, "L")
+  end
 end
 
 local function rConf()
@@ -334,7 +350,7 @@ function onEnter()
 end
 
 function onTick()
-  if md == "BRUTE" and bAuto and #cnd > 0 and cardos.millis() - lastB >= 1100 then
+  if md == "BRUTE" and not bStep and bAuto and #cnd > 0 and cardos.millis() - lastB >= 1100 then
     bIdx = (bIdx % #cnd) + 1; fireBrute()
   end
 end

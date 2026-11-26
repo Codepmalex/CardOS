@@ -1,0 +1,2 @@
+{"id":"hangman","name":"Hangman","version":"1.0","description":"Classic letter guessing word game","script":"apps/hangman.lua"}
+

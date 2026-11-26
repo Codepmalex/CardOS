@@ -76,7 +76,7 @@ enum NotifApp : uint8_t {
 
 constexpr int MAX_MINER_WORKERS = 6;
 constexpr int MAX_SAVED_WIFIS   = 20;
-constexpr int MAX_STORE_CATALOG = 12;
+constexpr int MAX_STORE_CATALOG = 64;
 
 enum HomeWidget : uint8_t {
     WIDGET_WEATHER = 0,

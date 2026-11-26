@@ -319,7 +319,7 @@ private:
 
     void loadCachedCatalog() {
         if ((g_sys.sdMounted || g_sys.spiffsMounted) && activeFS().exists("/store/catalog.json")) {
-            String raw = readTextFile("/store/catalog.json", 8192);
+            String raw = readTextFile("/store/catalog.json", 24576);
             if (parseCatalogJson(raw)) {
                 strlcpy(m_statusMsg, "Cached GitHub catalog", sizeof(m_statusMsg));
                 return;
