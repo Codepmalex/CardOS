@@ -21,6 +21,42 @@ static String s_pendingLuaAppId = "";
 static M5Canvas* s_curSpr = nullptr;
 static bool s_exitRequested = false;
 
+static void openLightLuaLibs(lua_State* L) {
+    static const luaL_Reg libs[] = {
+        {"",              luaopen_base},
+        {LUA_TABLIBNAME,  luaopen_table},
+        {LUA_STRLIBNAME,  luaopen_string},
+        {LUA_MATHLIBNAME, luaopen_math},
+        {nullptr,         nullptr}
+    };
+    for (const luaL_Reg* lib = libs; lib->func; ++lib) {
+        lua_pushcfunction(L, lib->func);
+        lua_pushstring(L, lib->name);
+        lua_call(L, 1, 0);
+    }
+}
+
+struct LuaFileReaderCtx {
+    File f;
+    char buf[512];
+};
+
+static const char* luaSdFileReader(lua_State* L, void* ud, size_t* size) {
+    (void)L;
+    auto* ctx = static_cast<LuaFileReaderCtx*>(ud);
+    if (!ctx || !ctx->f || !ctx->f.available()) {
+        *size = 0;
+        return nullptr;
+    }
+    int n = ctx->f.readBytes(ctx->buf, sizeof(ctx->buf));
+    if (n <= 0) {
+        *size = 0;
+        return nullptr;
+    }
+    *size = (size_t)n;
+    return ctx->buf;
+}
+
 static uint16_t luaColor(const char* name) {
     const auto& th = activeTheme();
     uint16_t acc = activeAccent();
@@ -165,7 +201,7 @@ static int l_readFile(lua_State* L) {
         lua_pushnil(L);
         return 1;
     }
-    String txt = readTextFile(path, 32768);
+    String txt = readTextFile(path, 16384);
     lua_pushlstring(L, txt.c_str(), txt.length());
     return 1;
 }
@@ -227,27 +263,33 @@ public:
             m_errorMsg = "Missing " + path;
             return;
         }
-        String script = readTextFile(path.c_str(), 49152);
-        if (script.isEmpty()) {
-            m_errorMsg = "Failed to read script";
-            return;
-        }
 
         m_L = luaL_newstate();
         if (!m_L) {
             m_errorMsg = "Out of RAM for Lua VM";
             return;
         }
-        luaL_openlibs(m_L);
+        openLightLuaLibs(m_L);
         luaL_register(m_L, "cardos", CARDOS_LUA_FUNCS);
         lua_pop(m_L, 1);
 
-        if (luaL_loadbuffer(m_L, script.c_str(), script.length(), path.c_str()) != 0 ||
-            lua_pcall(m_L, 0, 0, 0) != 0) {
+        LuaFileReaderCtx ctx;
+        ctx.f = activeFS().open(path.c_str(), FILE_READ);
+        if (!ctx.f) {
+            m_errorMsg = "Failed to open script";
+            cleanupVm();
+            return;
+        }
+
+        int loadErr = lua_load(m_L, luaSdFileReader, &ctx, path.c_str());
+        ctx.f.close();
+
+        if (loadErr != 0 || lua_pcall(m_L, 0, 0, 0) != 0) {
             m_errorMsg = String(lua_tostring(m_L, -1));
             cleanupVm();
             return;
         }
+        lua_gc(m_L, LUA_GCCOLLECT, 0);
 
         callLuaHook("onEnter");
         if (s_exitRequested) {
@@ -263,6 +305,7 @@ public:
     void onTick() override {
         if (!m_L) return;
         callLuaHook("onTick");
+        if (m_L) lua_gc(m_L, LUA_GCSTEP, 2);
         if (s_exitRequested) {
             s_exitRequested = false;
             switchApp(APP_HOME);
@@ -382,4 +425,3 @@ void launchLuaApp(const String& appId) {
     s_pendingLuaAppId = appId;
     switchApp(APP_LUA_RUNNER);
 }
-

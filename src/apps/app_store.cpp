@@ -11,6 +11,7 @@
 #include <vector>
 
 extern void switchApp(AppId id);
+extern M5Canvas* getScreenCanvas();
 
 namespace {
 
@@ -129,25 +130,124 @@ private:
     int m_binSel = 0;
     int m_binScroll = 0;
 
-    bool httpGetText(const String& url, String& outBody, int& httpCodeOut) {
+    uint32_t m_animPhase = 0;
+
+    void drawStoreProgress(const char* title, const char* stage, int pct) {
+        M5Canvas* spr = getScreenCanvas();
+        if (!spr) return;
+        const auto& th = activeTheme();
+        uint16_t acc = activeAccent();
+        pct = constrain(pct, 0, 100);
+        m_animPhase++;
+
+        // Draw centered modal overlay card
+        int bx = 18, by = 28, bw = SCREEN_W - 36, bh = 78;
+        spr->fillRoundRect(bx, by, bw, bh, 7, th.surface);
+        spr->drawRoundRect(bx, by, bw, bh, 7, acc);
+
+        // Animated rotating spinner + download arrow icon
+        int cx = bx + 20, cy = by + 23;
+        spr->drawCircle(cx, cy, 10, th.surface2);
+        int startDeg = (int)((m_animPhase * 32) % 360);
+        spr->drawArc(cx, cy, 10, 8, startDeg, startDeg + 115, acc);
+        spr->drawFastVLine(cx, cy - 4, 7, th.text);
+        spr->drawLine(cx - 3, cy + 1, cx, cy + 4, th.text);
+        spr->drawLine(cx + 3, cy + 1, cx, cy + 4, th.text);
+
+        spr->setTextSize(1);
+        spr->setTextColor(acc);
+        spr->drawString(title, bx + 36, by + 13);
+        spr->setTextColor(th.textDim);
+        String st = stage;
+        if ((int)st.length() > 26) st = st.substring(0, 25) + "~";
+        spr->drawString(st, bx + 36, by + 26);
+
+        // Smooth progress bar
+        int barX = bx + 12, barY = by + 48, barW = bw - 24, barH = 10;
+        spr->fillRoundRect(barX, barY, barW, barH, 4, th.surface2);
+        int fillW = max(6, (barW * pct) / 100);
+        spr->fillRoundRect(barX, barY, fillW, barH, 4, acc);
+
+        char pctBuf[12];
+        snprintf(pctBuf, sizeof(pctBuf), "%d%%", pct);
+        spr->setTextDatum(TC_DATUM);
+        spr->setTextColor(th.text);
+        spr->drawString(pctBuf, bx + bw / 2, barY + 14);
+        spr->setTextDatum(TL_DATUM);
+
+        spr->pushSprite(0, 0);
+    }
+
+    bool httpGetText(const String& url, String& outBody, int& httpCodeOut,
+                     const char* progTitle = nullptr, const char* progStage = nullptr,
+                     int startPct = 0, int endPct = 100) {
         httpCodeOut = 0;
+        outBody = "";
+        if (progTitle) drawStoreProgress(progTitle, progStage ? progStage : "Connecting...", startPct);
+
         HTTPClient http;
         http.setConnectTimeout(4500);
         http.setTimeout(10000);
+
+        WiFiClientSecure sec;
+        WiFiClient cli;
+        bool begun = false;
         if (url.startsWith("https://")) {
-            WiFiClientSecure sec;
             sec.setInsecure();
-            if (!http.begin(sec, url)) return false;
-            httpCodeOut = http.GET();
-            if (httpCodeOut == 200) outBody = http.getString();
-            http.end();
+            begun = http.begin(sec, url);
         } else {
-            WiFiClient cli;
-            if (!http.begin(cli, url)) return false;
-            httpCodeOut = http.GET();
-            if (httpCodeOut == 200) outBody = http.getString();
-            http.end();
+            begun = http.begin(cli, url);
         }
+        if (!begun) return false;
+
+        httpCodeOut = http.GET();
+        if (httpCodeOut == 200) {
+            int totalLen = http.getSize();
+            WiFiClient* stream = http.getStreamPtr();
+            if (totalLen > 0) outBody.reserve((size_t)totalLen + 16);
+
+            uint8_t buf[512];
+            int got = 0;
+            uint32_t lastDrawMs = millis();
+            uint32_t lastDataMs = millis();
+            int curPct = startPct + 5;
+            if (progTitle) drawStoreProgress(progTitle, progStage ? progStage : "Downloading...", curPct);
+
+            while (http.connected() || (stream && stream->available() > 0)) {
+                int avail = stream ? stream->available() : 0;
+                if (avail > 0) {
+                    int toRead = min(avail, (int)sizeof(buf));
+                    int n = stream->readBytes(buf, toRead);
+                    if (n > 0) {
+                        outBody.concat((const char*)buf, n);
+                        got += n;
+                        lastDataMs = millis();
+                    }
+                    uint32_t now = millis();
+                    if (progTitle && (now - lastDrawMs >= 90 || (totalLen > 0 && got >= totalLen))) {
+                        lastDrawMs = now;
+                        if (totalLen > 0) {
+                            curPct = startPct + ((endPct - startPct) * got) / totalLen;
+                        } else {
+                            curPct = min(endPct - 2, curPct + 4);
+                        }
+                        char st[32];
+                        if (totalLen > 0) {
+                            snprintf(st, sizeof(st), "%d / %d KB", (got + 512) / 1024, (totalLen + 512) / 1024);
+                        } else {
+                            snprintf(st, sizeof(st), "Downloaded %d bytes", got);
+                        }
+                        drawStoreProgress(progTitle, st, curPct);
+                    }
+                    if (totalLen > 0 && got >= totalLen) break;
+                } else {
+                    if (millis() - lastDataMs > 5000) break;
+                    delay(2);
+                }
+            }
+            if (progTitle) drawStoreProgress(progTitle, "Done!", endPct);
+        }
+        http.end();
         return httpCodeOut == 200;
     }
 
@@ -205,7 +305,9 @@ private:
         }
         String body;
         int code = 0;
-        if (httpGetText(g_settings.storeUrl, body, code) && parseCatalogJson(body)) {
+        if (httpGetText(g_settings.storeUrl, body, code, "Syncing GitHub", "Fetching catalog.json...", 15, 95) &&
+            parseCatalogJson(body)) {
+            drawStoreProgress("Syncing GitHub", "Saving catalog...", 100);
             ensureDir("/store");
             writeTextFile("/store/catalog.json", body);
             strlcpy(m_statusMsg, "Synced from GitHub", sizeof(m_statusMsg));
@@ -237,8 +339,8 @@ private:
         String pkgUrl = resolvePkgUrl(it.pkgUrl);
         String body;
         int code = 0;
-        showToast(("Downloading " + it.name + "...").c_str(), 1200);
-        if (!httpGetText(pkgUrl, body, code)) {
+        String title = "Installing " + it.name;
+        if (!httpGetText(pkgUrl, body, code, title.c_str(), "Fetching manifest...", 10, 40)) {
             snprintf(m_statusMsg, sizeof(m_statusMsg), "DL HTTP %d: push GitHub?", code);
             showToast(("Download err HTTP " + String(code)).c_str(), 2000);
             return;
@@ -252,11 +354,13 @@ private:
                 String scriptUrl = resolvePkgUrl(String(scriptRel));
                 String scriptBody;
                 int sCode = 0;
-                if (!httpGetText(scriptUrl, scriptBody, sCode) || scriptBody.isEmpty()) {
+                if (!httpGetText(scriptUrl, scriptBody, sCode, title.c_str(), "Downloading app script...", 40, 92) ||
+                    scriptBody.isEmpty()) {
                     snprintf(m_statusMsg, sizeof(m_statusMsg), "Script HTTP %d", sCode);
                     showToast(("Script err HTTP " + String(sCode)).c_str(), 2000);
                     return;
                 }
+                drawStoreProgress(title.c_str(), "Writing script to SD...", 95);
                 ensureDir("/store");
                 if (!writeTextFile(("/store/" + it.id + ".lua").c_str(), scriptBody)) {
                     showToast("SD write failed (.lua)", 1800);
@@ -265,9 +369,12 @@ private:
             }
         }
 
+        drawStoreProgress(title.c_str(), "Registering on Home...", 98);
         ensureDir("/store");
         writeTextFile(("/store/" + it.id + ".json").c_str(), body);
         installStoreAppKey(it.id);
+        drawStoreProgress(title.c_str(), "Installed!", 100);
+        delay(200);
         showToast((it.name + " added to Home!").c_str(), 1800);
     }
 
