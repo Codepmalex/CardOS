@@ -134,6 +134,7 @@ static void hhmmFromIso(const char* isoTime, char* out, size_t outSz) {
 
 static void fetchOpenMeteoWeather() {
     if (WiFi.status() != WL_CONNECTED) return;
+    if (g_tlsMutex && !xSemaphoreTake(g_tlsMutex, pdMS_TO_TICKS(50))) return;
 
     if (xSemaphoreTake(g_sysMutex, portMAX_DELAY)) {
         g_sys.weather.fetching = true;
@@ -292,6 +293,7 @@ static void fetchOpenMeteoWeather() {
             }
         }
     }
+    if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
 }
 
 static float jsonToFloat(JsonVariantConst v) {
@@ -301,6 +303,7 @@ static float jsonToFloat(JsonVariantConst v) {
 
 static void pollKryptexPool() {
     if (!g_sys.wifiConnected || strlen(g_settings.minerWallet) == 0) return;
+    if (g_tlsMutex && !xSemaphoreTake(g_tlsMutex, pdMS_TO_TICKS(50))) return;
 
     const char* coin = strlen(g_settings.minerCoin) ? g_settings.minerCoin : "xtm-rx";
     const char* wallet = g_settings.minerWallet;
@@ -443,6 +446,7 @@ static void pollKryptexPool() {
             triggerNotification(NOTIF_MINER, "Payout threshold reached!");
         }
     }
+    if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
 }
 
 static int compareSemVerStr(const String& a, const String& b) {
@@ -465,6 +469,7 @@ static int compareSemVerStr(const String& a, const String& b) {
 
 static void checkSoftwareAndAppUpdates() {
     if (WiFi.status() != WL_CONNECTED || ESP.getFreeHeap() < 75000) return;
+    if (g_tlsMutex && !xSemaphoreTake(g_tlsMutex, pdMS_TO_TICKS(50))) return;
 
     String url = String(g_settings.storeUrl);
     int p = url.indexOf("/store/");
@@ -533,6 +538,7 @@ static void checkSoftwareAndAppUpdates() {
     } else if (appUpdCount > 0) {
         triggerNotification(NOTIF_UPDATES, (String(appUpdCount) + " app update(s) ready!").c_str());
     }
+    if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
 }
 
 static void netWorkerTask(void* param) {

@@ -103,6 +103,10 @@ public:
             handleBtNameInput(ev);
             return;
         }
+        if (m_btScanning) {
+            handleBtScanInput(ev);
+            return;
+        }
         if (m_wifiScanning) {
             handleWifiScanListInput(ev);
             return;
@@ -199,6 +203,37 @@ public:
             spr.fillRoundRect(20, 60, SCREEN_W - 40, 18, 3, th.surface2);
             spr.setTextColor(th.text);
             spr.drawString(m_pendingCity + "_", 25, 65);
+            return;
+        }
+
+        if (m_btScanning) {
+            ui::drawStatusBar(spr, "Nearby BLE Devices");
+            spr.setTextSize(1);
+            if (m_btPeers.empty()) {
+                spr.setTextColor(th.textDim);
+                spr.drawString("No BLE devices found. ESC back.", 12, 54);
+            } else {
+                for (int i = 0; i < 5; ++i) {
+                    int idx = m_btScroll + i;
+                    if (idx >= (int)m_btPeers.size()) break;
+                    int y = 20 + i * 20;
+                    bool sel = (idx == m_btSel);
+                    spr.fillRoundRect(6, y, SCREEN_W - 16, 18, 3, sel ? th.surface2 : th.surface);
+                    if (sel) spr.drawRoundRect(6, y, SCREEN_W - 16, 18, 3, acc);
+                    spr.setTextColor(sel ? acc : th.text);
+                    String s = m_btPeers[idx].name;
+                    if ((int)s.length() > 21) s = s.substring(0, 20) + "~";
+                    spr.drawString(s, 11, y + 5);
+                    spr.setTextDatum(TR_DATUM);
+                    spr.setTextColor(th.textDim);
+                    char rbuf[12];
+                    snprintf(rbuf, sizeof(rbuf), "%ddBm", m_btPeers[idx].rssi);
+                    spr.drawString(rbuf, SCREEN_W - 14, y + 5);
+                    spr.setTextDatum(TL_DATUM);
+                }
+                ui::drawScrollbar(spr, SCREEN_W - 6, 20, 98, (int)m_btPeers.size(), 5, m_btScroll);
+            }
+            ui::drawToastOverlay(spr);
             return;
         }
 
@@ -321,6 +356,10 @@ private:
 
     bool m_btNamePrompt = false;
     String m_pendingBtName;
+
+    bool m_btScanning = false;
+    std::vector<BtPeerInfo> m_btPeers;
+    int m_btSel = 0, m_btScroll = 0;
 
     bool m_tzMapMode = false;
     int m_tzMapSel = 5;
@@ -764,7 +803,7 @@ private:
             case CAT_BUTTONS_AUDIO: return 6;
             case CAT_LED:           return 4;
             case CAT_WIFI:          return 4;
-            case CAT_BLUETOOTH:     return 4;
+            case CAT_BLUETOOTH:     return 5;
             case CAT_TIME_WEATHER:  return 5;
             case CAT_NOTIF:         return 10;
             case CAT_SYSTEM:        return 9;
@@ -816,7 +855,8 @@ private:
             case CAT_BLUETOOTH:
                 if (idx == 0)      { lbl = "Bluetooth"; val = g_settings.btEnabled ? "ON" : "OFF"; }
                 else if (idx == 1) { lbl = "Device Name"; val = g_settings.btName; }
-                else if (idx == 2) { lbl = "Status"; val = btStatusText(); }
+                else if (idx == 2) { lbl = "Scan Nearby BLE"; val = "[Enter]"; }
+                else if (idx == 3) { lbl = "Status"; val = btStatusText(); }
                 else               { lbl = "Disconnect"; val = btIsConnected() ? "[Enter]" : "-"; }
                 break;
             case CAT_TIME_WEATHER:
@@ -944,7 +984,13 @@ private:
                 } else if (idx == 1 && d > 0) {
                     m_pendingBtName = g_settings.btName;
                     m_btNamePrompt = true;
-                } else if (idx == 3 && d > 0) {
+                } else if (idx == 2 && d > 0) {
+                    showToast("Scanning BLE (3s)...", 3000);
+                    m_btPeers = btScanNearby(3);
+                    m_btSel = 0;
+                    m_btScroll = 0;
+                    m_btScanning = true;
+                } else if (idx == 4 && d > 0) {
                     btDisconnect();
                     showToast("BT Disconnected", 1200);
                 }
@@ -1116,6 +1162,23 @@ private:
         }
         if (ev.code == CK_CHAR && ev.ch >= 32 && ev.ch <= 126 && m_pendingBtName.length() < 20) {
             m_pendingBtName += ev.ch;
+        }
+    }
+
+    void handleBtScanInput(const InputEvent& ev) {
+        if (isNavBack(ev)) { m_btScanning = false; return; }
+        if (isNavUp(ev) && m_btSel > 0) {
+            m_btSel--;
+            if (m_btSel < m_btScroll) m_btScroll = m_btSel;
+        } else if (isNavDown(ev) && m_btSel < (int)m_btPeers.size() - 1) {
+            m_btSel++;
+            if (m_btSel >= m_btScroll + 5) m_btScroll = m_btSel - 4;
+        } else if (ev.code == CK_ENTER && !m_btPeers.empty()) {
+            String nm = m_btPeers[m_btSel].name;
+            showToast(("Connecting " + nm).c_str(), 1800);
+            bool ok = btConnectPeer(m_btPeers[m_btSel].addr);
+            m_btScanning = false;
+            showToast(ok ? ("Paired: " + nm).c_str() : "BLE Connect failed", 1600);
         }
     }
 };

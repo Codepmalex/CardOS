@@ -233,72 +233,107 @@ private:
                      int startPct = 0, int endPct = 100) {
         httpCodeOut = 0;
         outBody = "";
-        if (progTitle) drawStoreProgress(progTitle, progStage ? progStage : "Connecting...", startPct);
-
-        HTTPClient http;
-        http.setConnectTimeout(4500);
-        http.setTimeout(10000);
-
-        WiFiClientSecure sec;
-        WiFiClient cli;
-        bool begun = false;
-        if (url.startsWith("https://")) {
-            sec.setInsecure();
-            begun = http.begin(sec, url);
-        } else {
-            begun = http.begin(cli, url);
+        if (WiFi.status() != WL_CONNECTED) {
+            httpCodeOut = -10;
+            return false;
         }
-        if (!begun) return false;
+        if (ESP.getFreeHeap() < 80000) {
+            stopMusicPlayback();
+        }
+        if (g_tlsMutex && !xSemaphoreTake(g_tlsMutex, pdMS_TO_TICKS(6000))) {
+            httpCodeOut = -11;
+            return false;
+        }
 
-        httpCodeOut = http.GET();
-        if (httpCodeOut == 200) {
-            int totalLen = http.getSize();
-            WiFiClient* stream = http.getStreamPtr();
-            if (totalLen > 0) outBody.reserve((size_t)totalLen + 16);
-
-            uint8_t buf[512];
-            int got = 0;
-            uint32_t lastDrawMs = millis();
-            uint32_t lastDataMs = millis();
-            int curPct = startPct + 5;
-            if (progTitle) drawStoreProgress(progTitle, progStage ? progStage : "Downloading...", curPct);
-
-            while (http.connected() || (stream && stream->available() > 0)) {
-                int avail = stream ? stream->available() : 0;
-                if (avail > 0) {
-                    int toRead = min(avail, (int)sizeof(buf));
-                    int n = stream->readBytes(buf, toRead);
-                    if (n > 0) {
-                        outBody.concat((const char*)buf, n);
-                        got += n;
-                        lastDataMs = millis();
-                    }
-                    uint32_t now = millis();
-                    if (progTitle && (now - lastDrawMs >= 90 || (totalLen > 0 && got >= totalLen))) {
-                        lastDrawMs = now;
-                        if (totalLen > 0) {
-                            curPct = startPct + ((endPct - startPct) * got) / totalLen;
-                        } else {
-                            curPct = min(endPct - 2, curPct + 4);
-                        }
-                        char st[32];
-                        if (totalLen > 0) {
-                            snprintf(st, sizeof(st), "%d / %d KB", (got + 512) / 1024, (totalLen + 512) / 1024);
-                        } else {
-                            snprintf(st, sizeof(st), "Downloaded %d bytes", got);
-                        }
-                        drawStoreProgress(progTitle, st, curPct);
-                    }
-                    if (totalLen > 0 && got >= totalLen) break;
-                } else {
-                    if (millis() - lastDataMs > 5000) break;
-                    delay(2);
-                }
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            outBody = "";
+            httpCodeOut = 0;
+            if (progTitle) {
+                drawStoreProgress(progTitle, attempt == 0 ? (progStage ? progStage : "Connecting...") : "Retrying TLS...", startPct);
             }
-            if (progTitle) drawStoreProgress(progTitle, "Done!", endPct);
+
+            HTTPClient http;
+            http.setReuse(false);
+            http.setConnectTimeout(8000);
+            http.setTimeout(12000);
+            http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
+            WiFiClientSecure sec;
+            WiFiClient cli;
+            bool begun = false;
+            if (url.startsWith("https://")) {
+                sec.setInsecure();
+                sec.setHandshakeTimeout(12);
+                begun = http.begin(sec, url);
+            } else {
+                begun = http.begin(cli, url);
+            }
+            if (!begun) {
+                httpCodeOut = -1;
+                if (attempt == 0) { delay(300); continue; }
+                break;
+            }
+            http.addHeader("User-Agent", "CardOS");
+
+            httpCodeOut = http.GET();
+            if (httpCodeOut == 200) {
+                int totalLen = http.getSize();
+                WiFiClient* stream = http.getStreamPtr();
+                if (totalLen > 0) outBody.reserve((size_t)totalLen + 16);
+
+                uint8_t buf[512];
+                int got = 0;
+                uint32_t lastDrawMs = millis();
+                uint32_t lastDataMs = millis();
+                int curPct = startPct + 5;
+                if (progTitle) drawStoreProgress(progTitle, progStage ? progStage : "Downloading...", curPct);
+
+                while (http.connected() || (stream && stream->available() > 0)) {
+                    int avail = stream ? stream->available() : 0;
+                    if (avail > 0) {
+                        int toRead = min(avail, (int)sizeof(buf));
+                        int n = stream->readBytes(buf, toRead);
+                        if (n > 0) {
+                            outBody.concat((const char*)buf, n);
+                            got += n;
+                            lastDataMs = millis();
+                        }
+                        uint32_t now = millis();
+                        if (progTitle && (now - lastDrawMs >= 90 || (totalLen > 0 && got >= totalLen))) {
+                            lastDrawMs = now;
+                            if (totalLen > 0) {
+                                curPct = startPct + ((endPct - startPct) * got) / totalLen;
+                            } else {
+                                curPct = min(endPct - 2, curPct + 4);
+                            }
+                            char st[32];
+                            if (totalLen > 0) {
+                                snprintf(st, sizeof(st), "%d / %d KB", (got + 512) / 1024, (totalLen + 512) / 1024);
+                            } else {
+                                snprintf(st, sizeof(st), "Downloaded %d bytes", got);
+                            }
+                            drawStoreProgress(progTitle, st, curPct);
+                        }
+                        if (totalLen > 0 && got >= totalLen) break;
+                    } else {
+                        if (millis() - lastDataMs > 6000) break;
+                        delay(2);
+                    }
+                }
+                if (progTitle) drawStoreProgress(progTitle, "Done!", endPct);
+                http.end();
+                if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
+                return true;
+            }
+            http.end();
+            if (httpCodeOut < 0 && attempt == 0) {
+                delay(350);
+                continue;
+            }
+            break;
         }
-        http.end();
-        return httpCodeOut == 200;
+        if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
+        return false;
     }
 
     String resolvePkgUrl(const String& rawPkg) const {

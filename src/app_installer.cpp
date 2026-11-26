@@ -447,18 +447,30 @@ bool runGithubOsUpdateInteractive() {
     String verUrl = baseUrl + "/store/os_version.json";
     drawOtaModal("Software Update", "Checking GitHub...", 0, 0);
 
+    if (g_tlsMutex && !xSemaphoreTake(g_tlsMutex, pdMS_TO_TICKS(6000))) {
+        drawOtaModal("Software Update", "Network busy, try again", 0, 0);
+        delay(1400);
+        return false;
+    }
+
     WiFiClientSecure client;
     client.setInsecure();
+    client.setHandshakeTimeout(12);
     HTTPClient http;
-    http.setTimeout(10000);
+    http.setReuse(false);
+    http.setTimeout(12000);
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     if (!http.begin(client, verUrl)) {
+        if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
         drawOtaModal("Software Update", "HTTP init failed", 0, 0);
         delay(1500);
         return false;
     }
+    http.addHeader("User-Agent", "CardOS");
     int code = http.GET();
     if (code != 200) {
         http.end();
+        if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
         char eb[32];
         snprintf(eb, sizeof(eb), "Check failed (%d)", code);
         drawOtaModal("Software Update", eb, 0, 0);
@@ -467,6 +479,7 @@ bool runGithubOsUpdateInteractive() {
     }
     String payload = http.getString();
     http.end();
+    if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
 
     JsonDocument doc;
     if (deserializeJson(doc, payload) != DeserializationError::Ok) {
@@ -597,13 +610,17 @@ bool runGithubOsUpdateInteractive() {
     }
 
     drawOtaModal("CardOS Updater 1/2", "Downloading firmware...", 0, 0);
+    if (g_tlsMutex) xSemaphoreTake(g_tlsMutex, pdMS_TO_TICKS(6000));
     WiFiClientSecure dlClient;
     dlClient.setInsecure();
+    dlClient.setHandshakeTimeout(12);
     HTTPClient dlHttp;
+    dlHttp.setReuse(false);
     dlHttp.setTimeout(15000);
     dlHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     if (!dlHttp.begin(dlClient, binUrl) || dlHttp.GET() != 200) {
         dlHttp.end();
+        if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
         out.close();
         SD.remove(kOtaBinPath);
         drawOtaModal("Software Update", "Download failed!", 0, 0);
@@ -639,6 +656,7 @@ bool runGithubOsUpdateInteractive() {
         }
     }
     dlHttp.end();
+    if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
     out.close();
 
     if (downloaded < 200000 || firstByte != 0xE9 || (contentLen > 0 && downloaded < (uint32_t)contentLen)) {

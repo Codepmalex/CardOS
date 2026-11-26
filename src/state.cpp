@@ -10,6 +10,7 @@ Settings g_settings;
 HomeLayout g_layout;
 SystemState g_sys;
 SemaphoreHandle_t g_sysMutex = nullptr;
+SemaphoreHandle_t g_tlsMutex = nullptr;
 
 static Preferences prefs;
 
@@ -235,6 +236,9 @@ void ensureValidHomeWidget() {
 void initState() {
     if (!g_sysMutex) {
         g_sysMutex = xSemaphoreCreateMutex();
+    }
+    if (!g_tlsMutex) {
+        g_tlsMutex = xSemaphoreCreateMutex();
     }
     g_sys.lastActivityMs = millis();
     loadSettings();

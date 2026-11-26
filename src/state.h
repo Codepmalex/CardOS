@@ -259,6 +259,7 @@ extern Settings g_settings;
 extern HomeLayout g_layout;
 extern SystemState g_sys;
 extern SemaphoreHandle_t g_sysMutex;
+extern SemaphoreHandle_t g_tlsMutex;
 
 void initState();
 void loadSettings();
