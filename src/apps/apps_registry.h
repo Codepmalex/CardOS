@@ -19,6 +19,7 @@ App* createSysInfoApp();
 App* createSnakeApp();
 App* createFlappyApp();
 App* createMusicApp();
+App* createFeedbackApp();
 App* createLuaRunnerApp();
 
 // Background audio tick for Music app

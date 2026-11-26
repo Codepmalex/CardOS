@@ -39,7 +39,8 @@ static const AppKeyPair APP_KEYS[] = {
     {APP_SYSINFO,   "sysinfo"},
     {APP_SNAKE,     "snake"},
     {APP_FLAPPY,    "flappy"},
-    {APP_MUSIC,     "music"}
+    {APP_MUSIC,     "music"},
+    {APP_FEEDBACK,  "feedback"}
 };
 static constexpr int APP_KEYS_COUNT = sizeof(APP_KEYS) / sizeof(APP_KEYS[0]);
 

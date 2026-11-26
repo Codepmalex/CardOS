@@ -345,6 +345,14 @@ void drawAppIcon(M5Canvas& spr, int cx, int cy, AppId id, uint16_t color, bool i
             spr.drawLine(cx - 2, cy - 3, cx + 5, cy - 4, color);
             break;
         }
+        case APP_FEEDBACK: {
+            // Lightbulb / Feature Ideas emblem
+            spr.drawCircle(cx, cy - 2, 5, color);
+            spr.fillCircle(cx, cy - 2, 2, rgb565(250, 204, 21));
+            spr.drawFastHLine(cx - 2, cy + 4, 5, color);
+            spr.drawFastHLine(cx - 1, cy + 6, 3, color);
+            break;
+        }
         case APP_LUA_RUNNER:
             // Downloaded app tile with script / spark emblem
             spr.drawRoundRect(cx - 6, cy - 6, 12, 12, 3, color);

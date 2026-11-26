@@ -4,6 +4,7 @@
 #include "../storage.h"
 #include "../ui.h"
 #include "../ir_tx.h"
+#include "../bug_report.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -385,6 +386,8 @@ public:
     void onEnter() override {
         cleanupVm();
         m_errorMsg = "";
+        m_reportStatus = "";
+        m_reportedOk = false;
         s_exitRequested = false;
         s_lastFailSize = 0;
         m_appId = s_pendingLuaAppId;
@@ -459,6 +462,12 @@ public:
 
     void onInput(const InputEvent& ev) override {
         if (!m_L) {
+            if (ev.code == CK_CHAR && (ev.ch == 'r' || ev.ch == 'R')) {
+                showToast("Reporting to GitHub...", 1200);
+                m_reportedOk = submitBugReportToGithub("Lua:" + m_appId, m_errorMsg, m_reportStatus);
+                showToast(m_reportStatus.c_str(), 2200);
+                return;
+            }
             if (isNavBack(ev) || ev.code == CK_ENTER) {
                 switchApp(APP_HOME);
             }
@@ -511,19 +520,31 @@ public:
         if (!m_L) {
             spr.fillScreen(th.bg);
             ui::drawStatusBar(spr, "Store App Error");
-            spr.fillRoundRect(8, 22, SCREEN_W - 16, 94, 6, th.surface);
-            spr.drawRoundRect(8, 22, SCREEN_W - 16, 94, 6, th.err);
+            spr.fillRoundRect(6, 20, SCREEN_W - 12, 92, 6, th.surface);
+            spr.drawRoundRect(6, 20, SCREEN_W - 12, 92, 6, th.err);
             spr.setTextSize(1);
             spr.setTextColor(th.err);
-            spr.drawString("Lua Error:", 16, 28);
+            spr.drawString("Lua Error (" + m_appId + "):", 12, 26);
             spr.setTextColor(th.text);
-            int y = 41;
-            for (int pos = 0; pos < (int)m_errorMsg.length() && y < 94; pos += 33) {
-                spr.drawString(m_errorMsg.substring(pos, min((int)m_errorMsg.length(), pos + 33)), 16, y);
+            int y = 39;
+            int maxY = m_reportStatus.isEmpty() ? 98 : 84;
+            for (int pos = 0; pos < (int)m_errorMsg.length() && y < maxY; pos += 35) {
+                spr.drawString(m_errorMsg.substring(pos, min((int)m_errorMsg.length(), pos + 35)), 12, y);
                 y += 11;
             }
+            if (!m_reportStatus.isEmpty()) {
+                spr.setTextColor(m_reportedOk ? th.ok : th.warn);
+                String rs = m_reportStatus;
+                if ((int)rs.length() > 35) rs = rs.substring(0, 34) + "~";
+                spr.drawString(rs, 12, 96);
+            }
+            spr.fillRoundRect(6, 116, 108, 16, 4, th.err);
+            spr.setTextColor(th.bg);
+            spr.setTextDatum(MC_DATUM);
+            spr.drawString("[R] Report Error", 60, 124);
+            spr.setTextDatum(TL_DATUM);
             spr.setTextColor(acc);
-            spr.drawString("[ESC / Enter] Return Home", 16, 102);
+            spr.drawString("[ESC/Ent] Home", 122, 120);
             ui::drawToastOverlay(spr);
             return;
         }
@@ -539,6 +560,8 @@ private:
     lua_State* m_L = nullptr;
     String m_appId;
     String m_errorMsg;
+    String m_reportStatus;
+    bool m_reportedOk = false;
 
     void cleanupVm() {
         s_curSpr = nullptr;

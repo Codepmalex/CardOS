@@ -5,6 +5,7 @@
 #include "../hardware.h"
 #include "../net_weather.h"
 #include "../app_installer.h"
+#include "../bug_report.h"
 #include <time.h>
 #include <vector>
 
@@ -717,7 +718,7 @@ private:
             case CAT_WIFI:          return 4;
             case CAT_TIME_WEATHER:  return 5;
             case CAT_NOTIF:         return 8;
-            case CAT_SYSTEM:        return 8;
+            case CAT_SYSTEM:        return 9;
             default:                return 0;
         }
     }
@@ -786,7 +787,8 @@ private:
                 else if (idx == 3) { lbl = "App1 Slot"; val = strlen(g_settings.installedBinName) ? "Loaded" : "Empty"; }
                 else if (idx == 4) { lbl = "Boot App1 Now"; val = "[Enter]"; }
                 else if (idx == 5) { lbl = "Software Update"; val = String("v") + CARDOS_VERSION + " [Ent]"; }
-                else if (idx == 6) { lbl = "Factory Reset"; val = "[Enter]"; }
+                else if (idx == 6) { lbl = "Test Bug Report"; val = "[Enter]"; }
+                else if (idx == 7) { lbl = "Factory Reset"; val = "[Enter]"; }
                 else               { lbl = "Reboot CardOS"; val = "[Enter]"; }
                 break;
             default: break;
@@ -928,10 +930,13 @@ private:
                     runGithubOsUpdateInteractive();
                     return;
                 } else if (idx == 6 && d > 0) {
+                    triggerOsError("System Test", "Manual test bug report from Settings");
+                    return;
+                } else if (idx == 7 && d > 0) {
                     factoryResetSettings();
                     applyPowerProfile();
                     showToast("Settings reset!", 1500);
-                } else if (idx == 7 && d > 0) {
+                } else if (idx == 8 && d > 0) {
                     saveWeatherAndTimeCache();
                     delay(40);
                     rebootToCardOS();

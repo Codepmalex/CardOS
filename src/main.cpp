@@ -11,6 +11,7 @@
 #include "usb_msc_mode.h"
 #include "ir_tx.h"
 #include "ui.h"
+#include "bug_report.h"
 #include "apps/apps_registry.h"
 
 static M5Canvas s_spr(&M5Cardputer.Display);
@@ -116,6 +117,7 @@ bool openAppByName(const String& name) {
     if (q == "snake") { switchApp(APP_SNAKE); return true; }
     if (q == "flappy" || q == "bird") { switchApp(APP_FLAPPY); return true; }
     if (q == "music" || q == "mp3" || q == "audio" || q == "player") { switchApp(APP_MUSIC); return true; }
+    if (q == "ideas" || q == "idea" || q == "feedback" || q == "feature" || q == "request") { switchApp(APP_FEEDBACK); return true; }
     return false;
 }
 
@@ -217,6 +219,7 @@ void setup() {
     s_apps[APP_SNAKE]      = createSnakeApp();
     s_apps[APP_FLAPPY]     = createFlappyApp();
     s_apps[APP_MUSIC]      = createMusicApp();
+    s_apps[APP_FEEDBACK]   = createFeedbackApp();
     s_apps[APP_LUA_RUNNER] = createLuaRunnerApp();
 
     // Pre-initialize Calendar & Notes counts for widgets/badges
@@ -282,7 +285,9 @@ void loop() {
             continue;
         }
         playKeyClick();
-        if (s_apps[g_sys.activeApp]) {
+        if (hasActiveOsError()) {
+            handleOsErrorInput(ev);
+        } else if (s_apps[g_sys.activeApp]) {
             s_apps[g_sys.activeApp]->onInput(ev);
         }
         if (g_sys.deepSleepMode) return;
@@ -312,6 +317,9 @@ void loop() {
             s_spr.setTextDatum(MC_DATUM);
             s_spr.drawString("FLASHLIGHT - Any key to exit", SCREEN_W / 2, SCREEN_H / 2);
             s_spr.setTextDatum(TL_DATUM);
+            s_spr.pushSprite(0, 0);
+        } else if (hasActiveOsError()) {
+            renderOsErrorOverlay(s_spr);
             s_spr.pushSprite(0, 0);
         } else if (s_apps[g_sys.activeApp]) {
             s_apps[g_sys.activeApp]->onTick();

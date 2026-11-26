@@ -4,6 +4,7 @@
 #include "../ui.h"
 #include "../input.h"
 #include "../storage.h"
+#include "../bug_report.h"
 
 #include <M5Cardputer.h>
 #include <SD.h>
@@ -266,7 +267,7 @@ static bool startTrackFromPlaylist(int plIdx, int posIdx) {
     if (!s_mp3->begin(s_bufSrc, s_out)) {
         cleanupDecoder();
         updateMusicLiveState("", "", false, false, false);
-        showToast("Bad MP3 file", 1400);
+        triggerOsError("Music", ("Failed to decode MP3: " + tr.path).c_str());
         return false;
     }
 
@@ -293,7 +294,7 @@ static bool startHttpStreamUrl(const String& url, const String& title) {
     if (!s_mp3->begin(s_bufSrc, s_out)) {
         cleanupDecoder();
         updateMusicLiveState("", "", false, false, false);
-        showToast("Stream failed!", 1500);
+        triggerOsError("Music", ("HTTP stream failed: " + url).c_str());
         return false;
     }
 

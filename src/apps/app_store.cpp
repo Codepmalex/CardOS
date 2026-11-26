@@ -4,6 +4,7 @@
 #include "../storage.h"
 #include "../ui.h"
 #include "../app_installer.h"
+#include "../bug_report.h"
 #include <HTTPClient.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
@@ -451,7 +452,7 @@ private:
         String title = String(isUpdate ? "Updating " : "Installing ") + it.name;
         if (!httpGetText(pkgUrl, body, code, title.c_str(), "Fetching manifest...", 10, 40)) {
             snprintf(m_statusMsg, sizeof(m_statusMsg), "DL HTTP %d: push GitHub?", code);
-            showToast(("Download err HTTP " + String(code)).c_str(), 2000);
+            triggerOsError("App Store", ("Manifest HTTP " + String(code) + " for " + it.id).c_str());
             return;
         }
 
@@ -469,13 +470,13 @@ private:
                 if (!httpGetText(scriptUrl, scriptBody, sCode, title.c_str(), "Downloading app script...", 35, scriptEndPct) ||
                     scriptBody.isEmpty()) {
                     snprintf(m_statusMsg, sizeof(m_statusMsg), "Script HTTP %d", sCode);
-                    showToast(("Script err HTTP " + String(sCode)).c_str(), 2000);
+                    triggerOsError("App Store", ("Script HTTP " + String(sCode) + " for " + it.id).c_str());
                     return;
                 }
                 drawStoreProgress(title.c_str(), "Writing script to SD...", scriptEndPct + 2);
                 ensureDir("/store");
                 if (!writeTextFile(("/store/" + it.id + ".lua").c_str(), scriptBody)) {
-                    showToast("SD write failed (.lua)", 1800);
+                    triggerOsError("App Store", ("SD write failed for " + it.id + ".lua").c_str());
                     return;
                 }
             }
