@@ -286,6 +286,7 @@ void rebootToCardOS() {
 #include <esp_partition.h>
 #include <esp_spi_flash.h>
 #include "config.h"
+#include "apps/apps_registry.h"
 #include "storage.h"
 #include "state.h"
 
@@ -368,17 +369,8 @@ bool waitOtaKeyChoice(bool allowForceR) {
     }
 }
 
-} // namespace
-
-bool checkAndApplyPendingOsUpdate() {
-    const esp_partition_t* running = esp_ota_get_running_partition();
-    const esp_partition_t* app0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, "app0");
-    if (!app0) app0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, nullptr);
-    if (!running || !app0) return false;
-    if (running->address == app0->address) return false; // Already running app0
-
-    fs::FS& fs = activeFS();
-    if (!fs.exists(kOtaBinPath)) return false;
+bool flashOtaBinToApp0(fs::FS& fs, const esp_partition_t* app0, const char* modalTitle) {
+    if (!app0 || !fs.exists(kOtaBinPath)) return false;
 
     File f = fs.open(kOtaBinPath, FILE_READ);
     if (!f) {
@@ -395,7 +387,7 @@ bool checkAndApplyPendingOsUpdate() {
     }
     f.seek(0);
 
-    drawOtaModal("CardOS Updater 2/2", "Erasing app0...", 0, total);
+    drawOtaModal(modalTitle, "Erasing app0...", 0, total);
     uint32_t eraseSize = (total + SPI_FLASH_SEC_SIZE - 1) & ~(uint32_t)(SPI_FLASH_SEC_SIZE - 1);
     if (eraseSize > app0->size) eraseSize = app0->size;
     if (esp_partition_erase_range(app0, 0, eraseSize) != ESP_OK) {
@@ -418,7 +410,7 @@ bool checkAndApplyPendingOsUpdate() {
         offset += (uint32_t)got;
         if (offset - lastUi >= 32768 || offset == total) {
             lastUi = offset;
-            drawOtaModal("CardOS Updater 2/2", "Flashing CardOS...", offset, total);
+            drawOtaModal(modalTitle, "Flashing CardOS...", offset, total);
         }
     }
     f.close();
@@ -429,6 +421,18 @@ bool checkAndApplyPendingOsUpdate() {
     delay(900);
     rebootToCardOS();
     return ok;
+}
+
+} // namespace
+
+bool checkAndApplyPendingOsUpdate() {
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    const esp_partition_t* app0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, "app0");
+    if (!app0) app0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, nullptr);
+    if (!running || !app0) return false;
+    if (running->address == app0->address) return false; // Already running app0
+
+    return flashOtaBinToApp0(activeFS(), app0, "CardOS Updater 2/2");
 }
 
 bool runGithubOsUpdateInteractive() {
@@ -609,6 +613,7 @@ bool runGithubOsUpdateInteractive() {
         return false;
     }
 
+    stopMusicPlayback();
     drawOtaModal("CardOS Updater 1/2", "Downloading firmware...", 0, 0);
     if (g_tlsMutex) xSemaphoreTake(g_tlsMutex, pdMS_TO_TICKS(6000));
     WiFiClientSecure dlClient;
@@ -635,7 +640,7 @@ bool runGithubOsUpdateInteractive() {
     uint32_t lastUi = 0;
     uint32_t lastDataMs = millis();
     uint8_t firstByte = 0;
-    while (dlHttp.connected() && (contentLen <= 0 || (int)downloaded < contentLen)) {
+    while ((dlHttp.connected() || stream->available() > 0) && (contentLen <= 0 || (int)downloaded < contentLen)) {
         size_t avail = stream->available();
         if (avail > 0) {
             if (avail > sizeof(dlBuf)) avail = sizeof(dlBuf);
@@ -651,9 +656,10 @@ bool runGithubOsUpdateInteractive() {
                 }
             }
         } else {
-            if (millis() - lastDataMs > 10000) break;
+            if (millis() - lastDataMs > 15000) break;
             delay(5);
         }
+        yield();
     }
     dlHttp.end();
     if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
@@ -661,13 +667,35 @@ bool runGithubOsUpdateInteractive() {
 
     if (downloaded < 200000 || firstByte != 0xE9 || (contentLen > 0 && downloaded < (uint32_t)contentLen)) {
         SD.remove(kOtaBinPath);
-        drawOtaModal("Software Update", "Incomplete or bad binary", 0, 0);
-        delay(1800);
+        char errBuf[44];
+        snprintf(errBuf, sizeof(errBuf), "Bad bin:%u/%dKB m=%02X",
+                 (unsigned)(downloaded / 1024),
+                 contentLen > 0 ? (contentLen / 1024) : -1,
+                 (unsigned)firstByte);
+        drawOtaModal("Software Update", errBuf, 0, 0);
+        delay(2200);
         return false;
     }
 
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    const esp_partition_t* app0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, "app0");
+    if (!app0) app0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, nullptr);
     const esp_partition_t* app1 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, "app1");
     if (!app1) app1 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, nullptr);
+
+    if (running && app1 && running->address == app1->address) {
+        if (!app0 || downloaded > app0->size) {
+            SD.remove(kOtaBinPath);
+            drawOtaModal("Software Update", "App0 slot unavailable", 0, 0);
+            delay(1800);
+            return false;
+        }
+        g_settings.installedBinName[0] = '\0';
+        g_settings.installedBinSize = 0;
+        saveSettings();
+        return flashOtaBinToApp0(SD, app0, "CardOS Updater");
+    }
+
     if (!app1 || downloaded > app1->size) {
         SD.remove(kOtaBinPath);
         drawOtaModal("Software Update", "App1 slot unavailable", 0, 0);
@@ -683,11 +711,14 @@ bool runGithubOsUpdateInteractive() {
 
     esp_ota_handle_t otaHandle = 0;
     drawOtaModal("CardOS Updater 1/2", "Staging to App1...", 0, downloaded);
-    if (esp_ota_begin(app1, downloaded, &otaHandle) != ESP_OK) {
+    esp_err_t otaErr = esp_ota_begin(app1, downloaded, &otaHandle);
+    if (otaErr != ESP_OK) {
         in.close();
         SD.remove(kOtaBinPath);
-        drawOtaModal("Software Update", "OTA begin failed", 0, 0);
-        delay(1800);
+        char errBuf[36];
+        snprintf(errBuf, sizeof(errBuf), "OTA begin err:%d", (int)otaErr);
+        drawOtaModal("Software Update", errBuf, 0, 0);
+        delay(2000);
         return false;
     }
 
@@ -708,10 +739,14 @@ bool runGithubOsUpdateInteractive() {
     }
     in.close();
 
-    if (!writeOk || esp_ota_end(otaHandle) != ESP_OK || esp_ota_set_boot_partition(app1) != ESP_OK) {
+    esp_err_t endErr = writeOk ? esp_ota_end(otaHandle) : ESP_FAIL;
+    esp_err_t bootErr = (endErr == ESP_OK) ? esp_ota_set_boot_partition(app1) : endErr;
+    if (!writeOk || endErr != ESP_OK || bootErr != ESP_OK) {
         SD.remove(kOtaBinPath);
-        drawOtaModal("Software Update", "OTA verify failed", 0, 0);
-        delay(1800);
+        char errBuf[36];
+        snprintf(errBuf, sizeof(errBuf), "OTA stage err:%d", (int)bootErr);
+        drawOtaModal("Software Update", errBuf, 0, 0);
+        delay(2000);
         return false;
     }
 
