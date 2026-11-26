@@ -169,7 +169,7 @@ void setup() {
     M5Cardputer.begin(cfg, true);
     M5Cardputer.Display.setRotation(g_settings.flipScreen ? 2 : 0);
     M5Cardputer.Display.setBrightness(g_settings.brightness);
-    s_spr.setColorDepth(16);
+    s_spr.setColorDepth(8);
     s_spr.createSprite(SCREEN_W, SCREEN_H);
 
     // Show animated loading screen immediately (no progress bar) while init runs

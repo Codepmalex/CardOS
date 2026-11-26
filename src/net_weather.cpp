@@ -553,20 +553,22 @@ static void netWorkerTask(void* param) {
             }
         }
 
-        // Auto-refresh weather (2x interval in Low Battery ECO mode)
+        // Auto-refresh weather (pause background TLS while Lua / Store active to avoid heap contention)
+        bool busyTls = (g_sys.activeApp == APP_LUA_RUNNER || g_sys.activeApp == APP_STORE);
         uint32_t mult = g_settings.lowPowerMode ? 2UL : 1UL;
         uint32_t refreshMs = max((uint32_t)5, (uint32_t)g_settings.weatherRefreshMin) * 60000UL * mult;
-        bool due = g_sys.wifiConnected &&
+        bool due = g_sys.wifiConnected && !busyTls &&
+                   (isStoreAppInstalled("weather") || g_settings.homeWidget == WIDGET_WEATHER) &&
                    (!g_sys.weather.valid || g_sys.weather.lastFetchMs == 0 || (now - g_sys.weather.lastFetchMs > refreshMs));
 
-        if (g_sys.wifiConnected && (s_reqWeatherRefresh || due)) {
+        if (g_sys.wifiConnected && !busyTls && (s_reqWeatherRefresh || due)) {
             s_reqWeatherRefresh = false;
             fetchOpenMeteoWeather();
         }
 
-        // Poll Kryptex Pool API (60s normal, 120s in Low Battery mode)
+        // Poll Kryptex Pool API (60s normal, 120s in Low Battery mode; skip when miner isn't installed or Lua/Store active)
         uint32_t minerInt = 60000UL * mult;
-        if (g_sys.wifiConnected && strlen(g_settings.minerWallet) > 0 &&
+        if (g_sys.wifiConnected && !busyTls && isStoreAppInstalled("miner") && strlen(g_settings.minerWallet) > 0 &&
             (s_reqMinerRefresh || lastMinerPollMs == 0 || (now - lastMinerPollMs >= minerInt))) {
             s_reqMinerRefresh = false;
             lastMinerPollMs = now;

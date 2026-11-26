@@ -265,16 +265,29 @@ static void handleLine(String line) {
             Serial.println("ERR no framebuffer");
             return;
         }
-        const uint8_t* ptr = (const uint8_t*)spr->getBuffer();
         const size_t total = (size_t)SCREEN_W * (size_t)SCREEN_H * 2;
         Serial.printf("SCREENSHOT %d %d %u\n", SCREEN_W, SCREEN_H, (unsigned)total);
         Serial.flush();
-        size_t off = 0;
-        while (off < total) {
-            size_t chunk = min((size_t)512, total - off);
-            Serial.write(ptr + off, chunk);
-            off += chunk;
-            delay(1);
+        if (spr->getColorDepth() == 16) {
+            const uint8_t* ptr = (const uint8_t*)spr->getBuffer();
+            size_t off = 0;
+            while (off < total) {
+                size_t chunk = min((size_t)512, total - off);
+                Serial.write(ptr + off, chunk);
+                off += chunk;
+                delay(1);
+            }
+        } else {
+            uint8_t row[SCREEN_W * 2];
+            for (int y = 0; y < SCREEN_H; ++y) {
+                for (int x = 0; x < SCREEN_W; ++x) {
+                    uint16_t px = spr->readPixel(x, y);
+                    row[x * 2]     = (uint8_t)(px >> 8);
+                    row[x * 2 + 1] = (uint8_t)(px & 0xFF);
+                }
+                Serial.write(row, sizeof(row));
+                delay(1);
+            }
         }
         Serial.println("\nOK screenshot");
         return;

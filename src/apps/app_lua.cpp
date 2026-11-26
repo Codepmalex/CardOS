@@ -368,6 +368,8 @@ public:
             recordLuaError("newstate", "Out of RAM for Lua VM");
             return;
         }
+        lua_gc(m_L, LUA_GCSETPAUSE, 105);
+        lua_gc(m_L, LUA_GCSETSTEPMUL, 400);
         openLightLuaLibs(m_L);
         luaL_register(m_L, "cardos", CARDOS_LUA_FUNCS);
         lua_pop(m_L, 1);
