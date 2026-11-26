@@ -29,6 +29,7 @@ public:
     const char* name() const override { return "Home"; }
 
     void onEnter() override {
+        m_moveMode = false;
         refreshTiles();
         m_scrollY = m_scrollRow * 37.0f;
         if (g_sys.focusSearchOnHome) {
@@ -38,6 +39,7 @@ public:
     }
 
     void onExit() override {
+        m_moveMode = false;
         std::vector<SearchMatch>().swap(m_results);
         m_searchQuery = String();
         m_searchFocused = false;
@@ -65,9 +67,22 @@ public:
             return;
         }
 
-        // Grid navigation
+        // Grid navigation & Move Mode
         int total = (int)m_tiles.size();
         if (total == 0) return;
+
+        if (m_moveMode) {
+            if (isNavLeft(ev))       moveSelectedTile(-1);
+            else if (isNavRight(ev)) moveSelectedTile(1);
+            else if (isNavUp(ev))    moveSelectedTile(-4);
+            else if (isNavDown(ev))  moveSelectedTile(4);
+            else if (ev.code == CK_ENTER || isNavBack(ev) || (ev.code == CK_CHAR && ev.ch == '\\')) {
+                m_moveMode = false;
+                showToast("Order saved", 900);
+            }
+            ensureGridVisible();
+            return;
+        }
 
         if (isNavLeft(ev)) {
             if (m_selIdx > 0) m_selIdx--;
@@ -92,8 +107,11 @@ public:
             runSearch();
         } else if (ev.code == CK_ENTER) {
             launchSelectedTile();
-        } else if (ev.code == CK_CHAR && (ev.ch == '[' || ev.ch == ']')) {
-            int dir = (ev.ch == '[') ? -1 : 1;
+        } else if (ev.code == CK_CHAR && ev.ch == '\\') {
+            m_moveMode = true;
+            showToast("Move Mode: Arrows move", 1200);
+        } else if (ev.code == CK_CHAR && (ev.ch == '-' || ev.ch == '_' || ev.ch == '=' || ev.ch == '+')) {
+            int dir = (ev.ch == '-' || ev.ch == '_') ? -1 : 1;
             moveSelectedTile(dir);
         } else if (ev.code == CK_CHAR && (ev.ch == 'r' || ev.ch == 'R')) {
             refreshTiles();
@@ -262,24 +280,30 @@ public:
                 break;
         }
 
-        // --- Search Bar (y: 41..56) ---
+        // --- Search / Move Bar (y: 41..56) ---
         int sbX = 6, sbY = 41, sbW = SCREEN_W - 12, sbH = 16;
-        spr.fillRoundRect(sbX, sbY, sbW, sbH, 4, m_searchFocused ? th.surface2 : th.surface);
-        spr.drawRoundRect(sbX, sbY, sbW, sbH, 4, m_searchFocused ? acc : th.border);
-        // Magnifier icon
-        spr.drawCircle(sbX + 9, sbY + 7, 3, m_searchFocused ? acc : th.textDim);
-        spr.drawLine(sbX + 11, sbY + 9, sbX + 14, sbY + 12, m_searchFocused ? acc : th.textDim);
-
-        spr.setTextSize(1);
-        if (m_searchQuery.isEmpty()) {
-            spr.setTextColor(th.textDim);
-            spr.drawString(m_searchFocused ? "Type to search apps/files..." : "Search apps/files (Tab)  [/]Move", sbX + 18, sbY + 4);
+        spr.fillRoundRect(sbX, sbY, sbW, sbH, 4, (m_searchFocused || m_moveMode) ? th.surface2 : th.surface);
+        spr.drawRoundRect(sbX, sbY, sbW, sbH, 4, m_moveMode ? th.warn : (m_searchFocused ? acc : th.border));
+        // Magnifier icon (or Move badge)
+        if (m_moveMode) {
+            spr.setTextSize(1);
+            spr.setTextColor(th.warn);
+            spr.drawString("MOVE MODE: Arrows move, [Ent]Done", sbX + 8, sbY + 4);
         } else {
-            spr.setTextColor(th.text);
-            String dispQ = m_searchQuery;
-            if ((int)dispQ.length() > 30) dispQ = dispQ.substring(dispQ.length() - 30);
-            if (m_searchFocused && ((millis() / 400) % 2 == 0)) dispQ += "_";
-            spr.drawString(dispQ, sbX + 18, sbY + 4);
+            spr.drawCircle(sbX + 9, sbY + 7, 3, m_searchFocused ? acc : th.textDim);
+            spr.drawLine(sbX + 11, sbY + 9, sbX + 14, sbY + 12, m_searchFocused ? acc : th.textDim);
+
+            spr.setTextSize(1);
+            if (m_searchQuery.isEmpty()) {
+                spr.setTextColor(th.textDim);
+                spr.drawString(m_searchFocused ? "Type to search apps/files..." : "Search (Tab)  [-/=] or [\\]Move", sbX + 18, sbY + 4);
+            } else {
+                spr.setTextColor(th.text);
+                String dispQ = m_searchQuery;
+                if ((int)dispQ.length() > 30) dispQ = dispQ.substring(dispQ.length() - 30);
+                if (m_searchFocused && ((millis() / 400) % 2 == 0)) dispQ += "_";
+                spr.drawString(dispQ, sbX + 18, sbY + 4);
+            }
         }
 
         // --- Either Search Dropdown OR 4-Col App Grid (y: 60..133) ---
@@ -299,6 +323,7 @@ private:
     float m_scrollY = 0.0f;
 
     bool m_searchFocused = false;
+    bool m_moveMode = false;
     String m_searchQuery;
     std::vector<SearchMatch> m_results;
     int m_resIdx = 0;
@@ -347,27 +372,34 @@ private:
         ensureGridVisible();
     }
 
-    void moveSelectedTile(int dir) {
-        if (m_tiles.empty()) return;
+    void moveSelectedTile(int delta) {
+        if (m_tiles.empty() || delta == 0) return;
         int stockCount = (int)g_layout.order.size();
         if (m_selIdx < stockCount) {
-            int target = m_selIdx + dir;
-            if (target >= 0 && target < stockCount) {
-                std::swap(g_layout.order[m_selIdx], g_layout.order[target]);
+            int target = constrain(m_selIdx + delta, 0, stockCount - 1);
+            if (target != m_selIdx) {
+                int step = (target > m_selIdx) ? 1 : -1;
+                for (int i = m_selIdx; i != target; i += step) {
+                    std::swap(g_layout.order[i], g_layout.order[i + step]);
+                }
                 m_selIdx = target;
                 saveHomeLayout();
                 refreshTiles();
-                showToast("Order saved", 900);
+                if (!m_moveMode) showToast("Order saved", 900);
             }
         } else {
+            int pCount = (int)g_layout.pinnedBins.size();
             int pIdx = m_selIdx - stockCount;
-            int pTarget = pIdx + dir;
-            if (pIdx >= 0 && pTarget >= 0 && pTarget < (int)g_layout.pinnedBins.size()) {
-                std::swap(g_layout.pinnedBins[pIdx], g_layout.pinnedBins[pTarget]);
+            int pTarget = constrain(pIdx + delta, 0, pCount - 1);
+            if (pIdx >= 0 && pIdx < pCount && pTarget != pIdx) {
+                int step = (pTarget > pIdx) ? 1 : -1;
+                for (int i = pIdx; i != pTarget; i += step) {
+                    std::swap(g_layout.pinnedBins[i], g_layout.pinnedBins[i + step]);
+                }
                 m_selIdx = stockCount + pTarget;
                 saveHomeLayout();
                 refreshTiles();
-                showToast("Order saved", 900);
+                if (!m_moveMode) showToast("Order saved", 900);
             }
         }
     }
@@ -531,7 +563,11 @@ private:
                 bool sel = (!m_searchFocused && idx == m_selIdx);
 
                 spr.fillRoundRect(x, y, cellW, cellH, 5, sel ? th.surface2 : th.surface);
-                spr.drawRoundRect(x, y, cellW, cellH, 5, sel ? acc : th.border);
+                uint16_t bCol = sel ? (m_moveMode ? th.warn : acc) : th.border;
+                spr.drawRoundRect(x, y, cellW, cellH, 5, bCol);
+                if (sel && m_moveMode) {
+                    spr.drawRoundRect(x + 1, y + 1, cellW - 2, cellH - 2, 4, th.warn);
+                }
 
                 const auto& t = m_tiles[idx];
                 uint16_t iconCol = sel ? acc : (t.isBin ? th.warn : (t.isLua ? acc : th.accent2));
