@@ -184,7 +184,20 @@ void uninstallStoreAppKey(const String& key) {
     String pkg = "/store/" + key + ".json";
     String lua = "/store/" + key + ".lua";
     if (g_sys.sdMounted || g_sys.spiffsMounted) {
-        if (activeFS().exists(pkg.c_str())) activeFS().remove(pkg.c_str());
+        if (activeFS().exists(pkg.c_str())) {
+            String raw = readTextFile(pkg.c_str(), 2048);
+            JsonDocument doc;
+            if (!raw.isEmpty() && deserializeJson(doc, raw) == DeserializationError::Ok) {
+                String dataRel = String(doc["data"] | "");
+                if (!dataRel.isEmpty()) {
+                    int sl = dataRel.lastIndexOf('/');
+                    String baseName = (sl >= 0) ? dataRel.substring(sl + 1) : dataRel;
+                    String dataPath = "/store/" + baseName;
+                    if (activeFS().exists(dataPath.c_str())) activeFS().remove(dataPath.c_str());
+                }
+            }
+            activeFS().remove(pkg.c_str());
+        }
         if (activeFS().exists(lua.c_str())) activeFS().remove(lua.c_str());
     }
     ensureValidHomeWidget();

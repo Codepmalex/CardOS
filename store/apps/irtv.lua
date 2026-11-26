@@ -1,56 +1,9 @@
 -- IR TV & Projector Universal Remote (GitHub Store Lua App for CardOS)
+-- Database stays on SD (/store/irtv_db.tsv) and is streamed 1 line at a time.
+local DB_FILE = "/store/irtv_db.tsv"
 local SAVED_FILE = "/irtv_saved.tsv"
 
--- Compact pipe-delimited database (brand|model|type|proto|bits|pwr|vu|vd|mt|cu|cd|in|mn|ok|up|dn|lt|rt|bk)
--- Keeps RAM tiny (~6KB vs ~57KB for Lua hash tables) on ESP32-S3!
-local PROFILES = {
-  "Samsung|TV #1 (Standard)|TV|SAMSUNG|32|E0E040BF|E0E0E01F|E0E0D02F|E0E0F00F|E0E048B7|E0E008F7|E0E0807F|E0E058A7|E0E016E9|E0E006F9|E0E08679|E0E0A659|E0E046B9|E0E01AE5",
-  "Samsung|TV #2 (Smart/Frame)|TV|SAMSUNG|32|E0E06798|E0E0E01F|E0E0D02F|E0E0F00F|E0E048B7|E0E008F7|E0E0807F|E0E058A7|E0E016E9|E0E006F9|E0E08679|E0E0A659|E0E046B9|E0E01AE5",
-  "LG|TV #1 (webOS/Std)|TV|NEC|32|20DF10EF|20DF40BF|20DFC03F|20DF906F|20DF00FF|20DF807F|20DFD02F|20DFC23D|20DF22DD|20DF02FD|20DF827D|20DFE01F|20DF609F|20DF14EB",
-  "LG|TV #2 (Discrete Pwr)|TV|NEC|32|20DF23DC|20DF40BF|20DFC03F|20DF906F|20DF00FF|20DF807F|20DFD02F|20DFC23D|20DF22DD|20DF02FD|20DF827D|20DFE01F|20DF609F|20DF14EB",
-  "Sony|Bravia #1 (SIRC-12)|TV|SONY12|12|A90|490|C90|290|090|890|A50|070|A70|2F0|AF0|2D0|CD0|C70",
-  "Sony|Bravia #2 (SIRC-15)|TV|SONY15|15|540A|240A|640A|140A|040A|440A|528A|070A|538A|178A|578A|168A|668A|62E9",
-  "Sony|Bravia #3 (SIRC-20)|TV|SONY20|20|1A900|0C900|8C900|2C900|0900|8900|5A500|0700|A700|2F00|AF00|2D00|CD00|62E9",
-  "Vizio|SmartCast / LED TV|TV|NEC|32|20DF10EF|20DF40BF|20DFC03F|20DF906F|20DF00FF|20DF807F|20DFF40B|20DFC23D|20DF22DD|20DF02FD|20DF827D|20DFE01F|20DF609F|20DF14EB",
-  "TCL / Roku|Roku TV (Standard)|TV|NEC|32|57E3E817|57E3F00F|57E308F7|57E304FB|57E348B7|57E38877|57E3B04F|57E38679|57E354AB|57E39867|57E3CC33|57E37887|57E3B44B|57E36699",
-  "TCL|Android / Google TV|TV|NEC|32|F000D52A|F000D22D|F000D32C|F000C03F|F000D02F|F000D12E|F000C53A|F000F50A|F0001EE1|F000A659|F000A758|F000A956|F000A857|F000E51A",
-  "Hisense|Smart / VIDAA TV|TV|NEC|32|00FF0DF2|00FF44BB|00FFC43B|00FF0EF1|00FF52AD|00FFD22D|00FF14EB|00FF16E9|00FFD42B|00FF9669|00FF1AE5|00FF1EE1|00FF56A9|00FF5EA1",
-  "Hisense|Roku TV|TV|NEC|32|57E3E817|57E3F00F|57E308F7|57E304FB|57E348B7|57E38877|57E3B04F|57E38679|57E354AB|57E39867|57E3CC33|57E37887|57E3B44B|57E36699",
-  "Panasonic|Viera TV|TV|PANASONIC|48|40040100BCBD|400401000405|400401008485|400401004C4D|400401002C2D|40040100ACAD|40040100A0A1|400401004A4B|400401009293|400401005253|40040100D2D3|400401007273|40040100F2F3|400401002B2A",
-  "Philips|TV #1 (RC5)|TV|RC5|13|0C|10|11|0D|20|21|38|12|17|10|11|15|16|0A",
-  "Philips|TV #2 (RC6)|TV|RC6|20|1000C|10010|10011|1000D|10020|10021|10038|10054|1005C|10058|10059|1005A|1005B|1000A",
-  "Sharp|Aquos #1 (15-bit)|TV|SHARP|15|41A2|40A2|42A2|43A2|44A2|45A2|4CA2|47A2|4BA2|4D22|4E22|4C22|4A22|4F22",
-  "Sharp|Roku / Smart (NEC)|TV|NEC|32|57E3E817|57E3F00F|57E308F7|57E304FB|57E348B7|57E38877|57E3B04F|57E38679|57E354AB|57E39867|57E3CC33|57E37887|57E3B44B|57E36699",
-  "Toshiba|Regza #1 (NEC)|TV|NEC|32|02FD48B7|02FD58A7|02FD7887|02FD08F7|02FDD827|02FDF807|02FDF00F|02FD847B|02FD7C83|02FD9867|02FDB847|02FD42BD|02FD02FD|02FDC23D",
-  "Toshiba|Fire TV Edition|TV|NEC|32|61A0F00F|61A030CF|61A0B04F|61A0708F|61A050AF|61A0D02F|61A010EF|61A0906F|61A0A857|61A042BD|61A0C23D|61A06897|61A0E817|61A022DD",
-  "Insignia|NS / Standard TV|TV|NEC|32|61A0F00F|61A030CF|61A0B04F|61A0708F|61A050AF|61A0D02F|61A010EF|61A0906F|61A0A857|61A042BD|61A0C23D|61A06897|61A0E817|61A022DD",
-  "Insignia|Fire TV Edition|TV|NEC|32|57E3E817|57E3F00F|57E308F7|57E304FB|57E348B7|57E38877|57E3B04F|57E38679|57E354AB|57E39867|57E3CC33|57E37887|57E3B44B|57E36699",
-  "RCA|TV #1 (NEC)|TV|NEC|32|F708F50A|F708F20D|F708F30C|F708F00F|F708D22D|F708D32C|F708E11E|F708E817|F708A25D|F708A659|F708A758|F708A956|F708A857|F708E51A",
-  "Sanyo|TV #1 (NEC)|TV|NEC|32|1CE348B7|1CE3708F|1CE3F00F|1CE318E7|1CE350AF|1CE3D02F|1CE3C837|1CE3847B|1CE32AD5|1CE3D02F|1CE3708F|1CE3F807|1CE37887|1CE3E01F",
-  "JVC|TV #1 (16-bit)|TV|JVC|16|C5E8|C578|C5F8|C538|C598|C518|C5C8|C59C|C53C|C5D8|C558|C5B8|C538|C5E0",
-  "JVC|Roku / Smart (NEC)|TV|NEC|32|57E3E817|57E3F00F|57E308F7|57E304FB|57E348B7|57E38877|57E3B04F|57E38679|57E354AB|57E39867|57E3CC33|57E37887|57E3B44B|57E36699",
-  "Hitachi|TV #1 (NEC)|TV|NEC|32|50AF17E8|50AF21DE|50AFA15E|50AF09F6|50AF817E|50AF41BE|50AF31CE|50AFB14E|50AF718E|50AF916E|50AF51AE|50AFD12E|50AF619E|50AFE11E",
-  "Pioneer|Plasma / Fire TV|TV|NEC|32|A55A38C7|A55A50AF|A55AD02F|A55A48B7|A55A906F|A55A10EF|A55AF807|A55A7887|A55AE817|A55AA15E|A55A619E|A55AE11E|A55A11EE|A55AD827",
-  "Element|LED / Roku TV|TV|NEC|32|08F71DE2|08F71FE0|08F71EE1|08F71AE5|08F71BE4|08F71CE3|08F70FF0|08F744BB|08F714EB|08F710EF|08F712ED|08F713EC|08F715EA|08F74AB5",
-  "Westinghouse|LED TV|TV|NEC|32|689710EF|6897807F|689740BF|689720DF|6897C03F|6897A05F|6897609F|6897E01F|689750AF|6897906F|6897708F|6897B04F|689730CF|6897D02F",
-  "Magnavox|TV (RC5)|TV|RC5|13|0C|10|11|0D|20|21|38|12|17|10|11|15|16|0A",
-  "Onn / Roku|Walmart Onn TV|TV|NEC|32|57E3E817|57E3F00F|57E308F7|57E304FB|57E348B7|57E38877|57E3B04F|57E38679|57E354AB|57E39867|57E3CC33|57E37887|57E3B44B|57E36699",
-  "Haier|LED TV|TV|NEC|32|4BB620DF|4BB640BF|4BB6C03F|4BB6A05F|4BB600FF|4BB6807F|4BB610EF|4BB6D02F|4BB650AF|4BB630CF|4BB6B04F|4BB6708F|4BB6F00F|4BB6906F",
-  "Epson|PowerLite #1|Proj|NEC|32|C1AA09F6|C1AA31CE|C1AA718E|C1AA8976|C1AA0DF2|C1AA4DB2|C1AAE11E|C1AA59A6|C1AA39C6|C1AA19E6|C1AA9966|C1AA59A6|C1AAD926|C1AAA15E",
-  "Epson|Home Cinema #2|Proj|NEC|32|8355906F|835531CE|8355718E|8355C936|83550DF2|83554DB2|835521DE|835559A6|8355A15E|8355D12E|835551AE|8355916E|835511EE|8355B14E",
-  "BenQ|W/TH Series Proj|Proj|NEC|32|000CF20D|000C926D|000CC23D|000CA25D|000CB04F|000C708F|000CF00F|000CD02F|000C10EF|000C00FF|000C807F|000C40BF|000CC03F|000C30CF",
-  "Optoma|HD/UHD Projector|Proj|NEC|32|4CB3817E|4CB3B24D|4CB332CD|4CB341BE|4CB3D12E|4CB351AE|4CB30DF2|4CB3619E|4CB3A15E|4CB3C13E|4CB3E11E|4CB3916E|4CB3718E|4CB321DE",
-  "ViewSonic|PX / M Series Proj|Proj|NEC|32|83F40BF4|83F4629D|83F4E21D|83F44BB4|83F41AE5|83F49A65|83F42BD4|83F46B94|83F4AB54|83F41BE4|83F49B64|83F45BA4|83F4DB24|83F43BC4",
-  "NEC|M/PA Projector|Proj|NEC|32|18E710EF|18E740BF|18E7C03F|18E720DF|18E7807F|18E700FF|18E750AF|18E7609F|18E7A05F|18E7906F|18E7E01F|18E730CF|18E7B04F|18E7708F",
-  "Acer|H/X Series Proj|Proj|NEC|32|10C8E11E|10C8718E|10C8B14E|10C831CE|10C851AE|10C8D12E|10C8A15E|10C821DE|10C8916E|10C801FE|10C8817E|10C841BE|10C8C13E|10C8619E",
-  "Sony|VPL Projector|Proj|SONY15|15|542A|242A|642A|142A|042A|442A|572A|1D2A|2D2A|172A|572A|162A|662A|62EA",
-  "LG|CineBeam Proj|Proj|NEC|32|20DF10EF|20DF40BF|20DFC03F|20DF906F|20DF00FF|20DF807F|20DFD02F|20DFC23D|20DF22DD|20DF02FD|20DF827D|20DFE01F|20DF609F|20DF14EB",
-  "Panasonic|PT Projector|Proj|PANASONIC|48|40040100BCBD|400401000405|400401008485|400401004C4D|400401002C2D|40040100ACAD|40040100A0A1|400401004A4B|400401009293|400401005253|40040100D2D3|400401007273|40040100F2F3|400401002B2A",
-  "Anker Nebula|Capsule / Mars|Proj|NEC|32|00FF00FF|00FF807F|00FF40BF|00FFC03F|00FF20DF|00FFA05F|00FF609F|00FFE01F|00FF10EF|00FF906F|00FF50AF|00FFD02F|00FF30CF|00FFB04F",
-  "XGIMI|Horizon / Halo|Proj|NEC|32|FE013EC1|FE017887|FE01F807|FE01B847|FE0158A7|FE01D827|FE0118E7|FE019867|FE0138C7|FE0108F7|FE018877|FE0148B7|FE01C837|FE016897",
-  "Generic|Mini LED Projector|Proj|NEC|32|00FF0DF2|00FF44BB|00FFC43B|00FF0EF1|00FF52AD|00FFD22D|00FF14EB|00FF16E9|00FFD42B|00FF9669|00FF1AE5|00FF1EE1|00FF56A9|00FF5EA1"
-}
-
+local dbCount = 0
 local mode = "SAVED"
 local saved = {}
 local savedSel, savedScroll = 1, 1
@@ -94,6 +47,7 @@ local function splitFields(line)
 end
 
 local function parseProfile(str)
+  if not str or str == "" then return nil end
   local f = splitFields(str)
   return {
     b = f[1] or "", m = f[2] or "", t = f[3] or "TV",
@@ -106,6 +60,7 @@ local function parseProfile(str)
 end
 
 local function getBrandType(str)
+  if not str then return "", "TV" end
   local b, _, t = string.match(str, "^([^|]+)|([^|]+)|([^|]+)|")
   return b or "", t or "TV"
 end
@@ -161,7 +116,7 @@ local function makeUniqueName(base)
 end
 
 local function sendIr(dev, code, label)
-  if not code or code == "" then
+  if not dev or not code or code == "" then
     cardos.toast("Key N/A for model", 900)
     return
   end
@@ -172,7 +127,8 @@ end
 
 local function fireBruteCurrent()
   if #candidates == 0 then return end
-  bruteDev = parseProfile(PROFILES[candidates[bruteIdx]])
+  bruteDev = parseProfile(cardos.readLine(DB_FILE, candidates[bruteIdx]))
+  if not bruteDev then return end
   local useMute = bruteUseMute and (bruteDev.mt ~= nil and bruteDev.mt ~= "")
   local code = useMute and bruteDev.mt or bruteDev.pwr
   sendIr(bruteDev, code, useMute and "MUTE" or "PWR")
@@ -181,26 +137,32 @@ end
 
 local function buildBrands()
   brands = {}
-  local tvCnt, projCnt = 0, 0
-  for _, s in ipairs(PROFILES) do
-    local _, t = getBrandType(s)
-    if t == "Proj" then projCnt = projCnt + 1 else tvCnt = tvCnt + 1 end
+  if dbCount == 0 then
+    cardos.toast("Re-download IR TV in Store", 1800)
+    return false
   end
-  table.insert(brands, {label="* Brute-Force ALL", kind="ALL", match="", count=#PROFILES})
-  if tvCnt > 0 then table.insert(brands, {label="* All TVs", kind="TV", match="", count=tvCnt}) end
-  if projCnt > 0 then table.insert(brands, {label="* All Projectors", kind="PROJ", match="", count=projCnt}) end
-
+  local tvCnt, projCnt = 0, 0
   local seen = {}
-  for _, s in ipairs(PROFILES) do
-    local b = getBrandType(s)
-    if not seen[b] then
-      seen[b] = {label=b, kind="BRAND", match=b, count=1}
-      table.insert(brands, seen[b])
-    else
-      seen[b].count = seen[b].count + 1
+  local order = {}
+  for i = 1, dbCount do
+    local s = cardos.readLine(DB_FILE, i)
+    if s then
+      local b, t = getBrandType(s)
+      if t == "Proj" then projCnt = projCnt + 1 else tvCnt = tvCnt + 1 end
+      if not seen[b] then
+        seen[b] = {label=b, kind="BRAND", match=b, count=1}
+        table.insert(order, seen[b])
+      else
+        seen[b].count = seen[b].count + 1
+      end
     end
   end
+  table.insert(brands, {label="* Brute-Force ALL", kind="ALL", match="", count=dbCount})
+  if tvCnt > 0 then table.insert(brands, {label="* All TVs", kind="TV", match="", count=tvCnt}) end
+  if projCnt > 0 then table.insert(brands, {label="* All Projectors", kind="PROJ", match="", count=projCnt}) end
+  for _, item in ipairs(order) do table.insert(brands, item) end
   brandSel, brandScroll = 1, 1
+  return true
 end
 
 local function isUp(k, c)    return k == "up" or (k == "char" and c == ";") end
@@ -210,6 +172,7 @@ local function isRight(k, c) return k == "right" or (k == "char" and c == "/") e
 local function isBack(k, c)  return k == "esc" or (k == "char" and c == "`") end
 
 function onEnter()
+  dbCount = cardos.countLines(DB_FILE)
   loadSaved()
   if savedSel > #saved then savedSel = math.max(1, #saved) end
   if savedScroll > math.max(1, #saved - 2) then savedScroll = math.max(1, #saved - 2) end
@@ -239,12 +202,10 @@ function onInput(key, ch)
       savedSel = savedSel + 1
       if savedSel >= savedScroll + 3 then savedScroll = savedSel - 2 end
     elseif cl == "a" then
-      buildBrands()
-      mode = "PICK_BRAND"
+      if buildBrands() then mode = "PICK_BRAND" end
     elseif key == "enter" then
       if #saved == 0 then
-        buildBrands()
-        mode = "PICK_BRAND"
+        if buildBrands() then mode = "PICK_BRAND" end
       else
         activeIdx = savedSel
         mode = "REMOTE"
@@ -275,13 +236,16 @@ function onInput(key, ch)
     elseif key == "enter" and #brands > 0 then
       local bf = brands[brandSel]
       candidates = {}
-      for i, s in ipairs(PROFILES) do
-        local b, t = getBrandType(s)
-        local ok = (bf.kind == "ALL") or
-                   (bf.kind == "TV" and t ~= "Proj") or
-                   (bf.kind == "PROJ" and t == "Proj") or
-                   (bf.kind == "BRAND" and b == bf.match)
-        if ok then table.insert(candidates, i) end
+      for i = 1, dbCount do
+        local s = cardos.readLine(DB_FILE, i)
+        if s then
+          local b, t = getBrandType(s)
+          local ok = (bf.kind == "ALL") or
+                     (bf.kind == "TV" and t ~= "Proj") or
+                     (bf.kind == "PROJ" and t == "Proj") or
+                     (bf.kind == "BRAND" and b == bf.match)
+          if ok then table.insert(candidates, i) end
+        end
       end
       if #candidates > 0 then
         bruteIdx = 1
@@ -296,9 +260,11 @@ function onInput(key, ch)
     if #candidates == 0 then return end
     if key == "enter" then
       bruteAuto = false
-      confirmDev = parseProfile(PROFILES[candidates[bruteIdx]])
-      confirmDev.name = makeUniqueName(confirmDev.b .. " " .. confirmDev.t)
-      mode = "CONFIRM"
+      confirmDev = parseProfile(cardos.readLine(DB_FILE, candidates[bruteIdx]))
+      if confirmDev then
+        confirmDev.name = makeUniqueName(confirmDev.b .. " " .. confirmDev.t)
+        mode = "CONFIRM"
+      end
     elseif key == "char" and ch == " " then
       bruteAuto = not bruteAuto
       lastBruteMs = cardos.millis()
@@ -420,11 +386,18 @@ function onRender()
 
   if mode == "SAVED" then
     cardos.statusBar("IR TV Remote")
-    cardos.text("Saved (" .. #saved .. ") | DB:" .. #PROFILES, 6, 21, "dim", 1, "L")
+    cardos.text("Saved (" .. #saved .. ") | DB:" .. dbCount, 6, 21, "dim", 1, "L")
     cardos.fillRect(178, 18, 56, 13, 3, "accent")
     cardos.text("[A] Add", 206, 24, "bg", 1, "C")
 
-    if #saved == 0 then
+    if dbCount == 0 and #saved == 0 then
+      cardos.fillRect(8, 36, 224, 78, 6, "surface")
+      cardos.drawRect(8, 36, 224, 78, 6, "warn")
+      cardos.text("IR Database Missing", 18, 46, "warn", 1, "L")
+      cardos.text("Open App Store -> IR TV,", 18, 62, "dim", 1, "L")
+      cardos.text("[X] Remove -> [Ent] Download.", 18, 74, "dim", 1, "L")
+      cardos.text("[ESC] Home", 18, 94, "accent", 1, "L")
+    elseif #saved == 0 then
       cardos.fillRect(8, 36, 224, 78, 6, "surface")
       cardos.drawRect(8, 36, 224, 78, 6, "border")
       cardos.text("No Saved TVs / Projectors", 18, 46, "accent", 1, "L")
@@ -471,8 +444,8 @@ function onRender()
 
   elseif mode == "BRUTE" then
     cardos.statusBar("IR Brute-Force")
-    if #candidates == 0 then return end
-    local p = bruteDev or parseProfile(PROFILES[candidates[bruteIdx]])
+    if #candidates == 0 or not bruteDev then return end
+    local p = bruteDev
     cardos.fillRect(6, 20, 228, 74, 6, "surface")
     cardos.drawRect(6, 20, 228, 74, 6, bruteAuto and "accent" or "warn")
     cardos.text("Code " .. bruteIdx .. " / " .. #candidates .. " (" .. p.t .. ")", 14, 27, "accent", 1, "L")

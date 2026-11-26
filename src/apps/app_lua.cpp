@@ -20,6 +20,19 @@ namespace {
 static String s_pendingLuaAppId = "";
 static M5Canvas* s_curSpr = nullptr;
 static bool s_exitRequested = false;
+static size_t s_lastFailSize = 0;
+
+static void* luaAlloc(void* ud, void* ptr, size_t osize, size_t nsize) {
+    (void)ud;
+    (void)osize;
+    if (nsize == 0) {
+        free(ptr);
+        return nullptr;
+    }
+    void* p = realloc(ptr, nsize);
+    if (!p) s_lastFailSize = nsize;
+    return p;
+}
 
 static void openLightLuaLibs(lua_State* L) {
     static const luaL_Reg libs[] = {
@@ -38,7 +51,7 @@ static void openLightLuaLibs(lua_State* L) {
 
 struct LuaFileReaderCtx {
     File f;
-    char buf[512];
+    char buf[256];
 };
 
 static const char* luaSdFileReader(lua_State* L, void* ud, size_t* size) {
@@ -193,11 +206,7 @@ static int l_irSend(lua_State* L) {
 
 static int l_readFile(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
-    if (!g_sys.sdMounted && !g_sys.spiffsMounted) {
-        lua_pushnil(L);
-        return 1;
-    }
-    if (!activeFS().exists(path)) {
+    if ((!g_sys.sdMounted && !g_sys.spiffsMounted) || !activeFS().exists(path)) {
         lua_pushnil(L);
         return 1;
     }
@@ -225,6 +234,93 @@ static int l_fileExists(lua_State* L) {
     return 1;
 }
 
+static int l_countLines(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    if ((!g_sys.sdMounted && !g_sys.spiffsMounted) || !activeFS().exists(path)) {
+        lua_pushinteger(L, 0);
+        return 1;
+    }
+    File f = activeFS().open(path, FILE_READ);
+    if (!f) {
+        lua_pushinteger(L, 0);
+        return 1;
+    }
+    uint8_t buf[128];
+    int count = 0;
+    bool hasChars = false;
+    while (f.available()) {
+        int n = f.read(buf, sizeof(buf));
+        if (n <= 0) break;
+        for (int i = 0; i < n; ++i) {
+            if (buf[i] == '\n') {
+                if (hasChars) { count++; hasChars = false; }
+            } else if (buf[i] != '\r') {
+                hasChars = true;
+            }
+        }
+    }
+    if (hasChars) count++;
+    f.close();
+    lua_pushinteger(L, count);
+    return 1;
+}
+
+static int l_readLine(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    int target = (int)luaL_checkinteger(L, 2); // 1-based non-empty line index
+    if (target < 1 || (!g_sys.sdMounted && !g_sys.spiffsMounted) || !activeFS().exists(path)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    File f = activeFS().open(path, FILE_READ);
+    if (!f) {
+        lua_pushnil(L);
+        return 1;
+    }
+    char lineBuf[384];
+    size_t lineLen = 0;
+    uint8_t buf[128];
+    int cur = 0;
+    bool found = false;
+
+    while (f.available() && !found) {
+        int n = f.read(buf, sizeof(buf));
+        if (n <= 0) break;
+        for (int i = 0; i < n; ++i) {
+            char c = (char)buf[i];
+            if (c == '\r') continue;
+            if (c == '\n') {
+                if (lineLen > 0) {
+                    cur++;
+                    if (cur == target) {
+                        found = true;
+                        break;
+                    }
+                    lineLen = 0;
+                }
+            } else if (cur + 1 == target) {
+                if (lineLen + 1 < sizeof(lineBuf)) {
+                    lineBuf[lineLen++] = c;
+                }
+            } else {
+                // Non-empty marker for earlier lines without storing bytes
+                lineLen = 1;
+            }
+        }
+    }
+    if (!found && lineLen > 0 && cur + 1 == target) {
+        found = true;
+    }
+    f.close();
+
+    if (found) {
+        lua_pushlstring(L, lineBuf, lineLen);
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
 static const luaL_Reg CARDOS_LUA_FUNCS[] = {
     {"clear",      l_clear},
     {"statusBar",  l_statusBar},
@@ -240,6 +336,8 @@ static const luaL_Reg CARDOS_LUA_FUNCS[] = {
     {"readFile",   l_readFile},
     {"writeFile",  l_writeFile},
     {"fileExists", l_fileExists},
+    {"countLines", l_countLines},
+    {"readLine",   l_readLine},
     {nullptr, nullptr}
 };
 
@@ -252,21 +350,22 @@ public:
         cleanupVm();
         m_errorMsg = "";
         s_exitRequested = false;
+        s_lastFailSize = 0;
         m_appId = s_pendingLuaAppId;
 
         if (m_appId.isEmpty()) {
-            m_errorMsg = "No app selected.";
+            recordLuaError("init", "No app selected");
             return;
         }
         String path = "/store/" + m_appId + ".lua";
         if ((!g_sys.sdMounted && !g_sys.spiffsMounted) || !activeFS().exists(path.c_str())) {
-            m_errorMsg = "Missing " + path;
+            recordLuaError("init", ("Missing " + path).c_str());
             return;
         }
 
-        m_L = luaL_newstate();
+        m_L = lua_newstate(luaAlloc, nullptr);
         if (!m_L) {
-            m_errorMsg = "Out of RAM for Lua VM";
+            recordLuaError("newstate", "Out of RAM for Lua VM");
             return;
         }
         openLightLuaLibs(m_L);
@@ -276,7 +375,7 @@ public:
         LuaFileReaderCtx ctx;
         ctx.f = activeFS().open(path.c_str(), FILE_READ);
         if (!ctx.f) {
-            m_errorMsg = "Failed to open script";
+            recordLuaError("open", "Failed to open script");
             cleanupVm();
             return;
         }
@@ -284,8 +383,13 @@ public:
         int loadErr = lua_load(m_L, luaSdFileReader, &ctx, path.c_str());
         ctx.f.close();
 
-        if (loadErr != 0 || lua_pcall(m_L, 0, 0, 0) != 0) {
-            m_errorMsg = String(lua_tostring(m_L, -1));
+        if (loadErr != 0) {
+            recordLuaError("load", lua_tostring(m_L, -1));
+            cleanupVm();
+            return;
+        }
+        if (lua_pcall(m_L, 0, 0, 0) != 0) {
+            recordLuaError("exec", lua_tostring(m_L, -1));
             cleanupVm();
             return;
         }
@@ -345,7 +449,7 @@ public:
             lua_pushstring(m_L, k);
             lua_pushstring(m_L, chStr);
             if (lua_pcall(m_L, 2, 0, 0) != 0) {
-                m_errorMsg = String(lua_tostring(m_L, -1));
+                recordLuaError("onInput", lua_tostring(m_L, -1));
                 cleanupVm();
             }
         } else {
@@ -366,19 +470,19 @@ public:
         if (!m_L) {
             spr.fillScreen(th.bg);
             ui::drawStatusBar(spr, "Store App Error");
-            spr.fillRoundRect(8, 24, SCREEN_W - 16, 86, 6, th.surface);
-            spr.drawRoundRect(8, 24, SCREEN_W - 16, 86, 6, th.err);
+            spr.fillRoundRect(8, 22, SCREEN_W - 16, 94, 6, th.surface);
+            spr.drawRoundRect(8, 22, SCREEN_W - 16, 94, 6, th.err);
             spr.setTextSize(1);
             spr.setTextColor(th.err);
-            spr.drawString("Lua Error:", 16, 32);
+            spr.drawString("Lua Error:", 16, 28);
             spr.setTextColor(th.text);
-            int y = 46;
-            for (int pos = 0; pos < (int)m_errorMsg.length() && y < 96; pos += 33) {
+            int y = 41;
+            for (int pos = 0; pos < (int)m_errorMsg.length() && y < 94; pos += 33) {
                 spr.drawString(m_errorMsg.substring(pos, min((int)m_errorMsg.length(), pos + 33)), 16, y);
                 y += 11;
             }
             spr.setTextColor(acc);
-            spr.drawString("[ESC / Enter] Return Home", 16, 98);
+            spr.drawString("[ESC / Enter] Return Home", 16, 102);
             ui::drawToastOverlay(spr);
             return;
         }
@@ -403,12 +507,24 @@ private:
         }
     }
 
+    void recordLuaError(const char* stage, const char* msg) {
+        char buf[192];
+        snprintf(buf, sizeof(buf), "[%s] %s | Free:%luK Max:%luK Req:%u",
+                 stage ? stage : "lua",
+                 msg ? msg : "err",
+                 (unsigned long)(ESP.getFreeHeap() / 1024),
+                 (unsigned long)(ESP.getMaxAllocHeap() / 1024),
+                 (unsigned)s_lastFailSize);
+        m_errorMsg = buf;
+        Serial.println(buf);
+    }
+
     void callLuaHook(const char* fn) {
         if (!m_L) return;
         lua_getglobal(m_L, fn);
         if (lua_isfunction(m_L, -1)) {
             if (lua_pcall(m_L, 0, 0, 0) != 0) {
-                m_errorMsg = String(lua_tostring(m_L, -1));
+                recordLuaError(fn, lua_tostring(m_L, -1));
                 cleanupVm();
             }
         } else {

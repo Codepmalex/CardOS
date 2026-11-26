@@ -353,24 +353,46 @@ private:
             return;
         }
 
-        // If manifest specifies a downloadable Lua script, fetch it genuinely from GitHub
+        // If manifest specifies a downloadable Lua script (and optional companion data file),
+        // fetch them genuinely from GitHub
         JsonDocument doc;
         if (deserializeJson(doc, body) == DeserializationError::Ok) {
-            const char* scriptRel = doc["script"] | "";
-            if (strlen(scriptRel) > 0) {
-                String scriptUrl = resolvePkgUrl(String(scriptRel));
+            String scriptRel = String(doc["script"] | "");
+            String dataRel   = String(doc["data"] | "");
+            if (!scriptRel.isEmpty()) {
+                String scriptUrl = resolvePkgUrl(scriptRel);
                 String scriptBody;
                 int sCode = 0;
-                if (!httpGetText(scriptUrl, scriptBody, sCode, title.c_str(), "Downloading app script...", 40, 92) ||
+                int scriptEndPct = dataRel.isEmpty() ? 92 : 70;
+                if (!httpGetText(scriptUrl, scriptBody, sCode, title.c_str(), "Downloading app script...", 35, scriptEndPct) ||
                     scriptBody.isEmpty()) {
                     snprintf(m_statusMsg, sizeof(m_statusMsg), "Script HTTP %d", sCode);
                     showToast(("Script err HTTP " + String(sCode)).c_str(), 2000);
                     return;
                 }
-                drawStoreProgress(title.c_str(), "Writing script to SD...", 95);
+                drawStoreProgress(title.c_str(), "Writing script to SD...", scriptEndPct + 2);
                 ensureDir("/store");
                 if (!writeTextFile(("/store/" + it.id + ".lua").c_str(), scriptBody)) {
                     showToast("SD write failed (.lua)", 1800);
+                    return;
+                }
+            }
+            if (!dataRel.isEmpty()) {
+                String dataUrl = resolvePkgUrl(dataRel);
+                int sl = dataRel.lastIndexOf('/');
+                String baseName = (sl >= 0) ? dataRel.substring(sl + 1) : dataRel;
+                String dataBody;
+                int dCode = 0;
+                if (!httpGetText(dataUrl, dataBody, dCode, title.c_str(), "Downloading app data...", 72, 94) ||
+                    dataBody.isEmpty()) {
+                    snprintf(m_statusMsg, sizeof(m_statusMsg), "Data HTTP %d", dCode);
+                    showToast(("Data err HTTP " + String(dCode)).c_str(), 2000);
+                    return;
+                }
+                drawStoreProgress(title.c_str(), "Writing data to SD...", 96);
+                ensureDir("/store");
+                if (!writeTextFile(("/store/" + baseName).c_str(), dataBody)) {
+                    showToast("SD write failed (data)", 1800);
                     return;
                 }
             }
