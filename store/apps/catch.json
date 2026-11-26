@@ -1,2 +1,1 @@
-{"id":"catch","name":"Coin Catch","version":"1.0","description":"Catch falling coins, dodge bombs","script":"apps/catch.lua"}
-
+{"id":"catch","name":"Coin Catch","version":"1.1","description":"Catch falling coins, dodge bombs","script":"apps/catch.lua"}

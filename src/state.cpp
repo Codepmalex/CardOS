@@ -38,7 +38,8 @@ static const AppKeyPair APP_KEYS[] = {
     {APP_MINER,     "miner"},
     {APP_SYSINFO,   "sysinfo"},
     {APP_SNAKE,     "snake"},
-    {APP_FLAPPY,    "flappy"}
+    {APP_FLAPPY,    "flappy"},
+    {APP_MUSIC,     "music"}
 };
 static constexpr int APP_KEYS_COUNT = sizeof(APP_KEYS) / sizeof(APP_KEYS[0]);
 
@@ -213,6 +214,7 @@ bool isWidgetAvailable(uint8_t widgetId) {
         case WIDGET_CALENDAR:
         case WIDGET_NOTES:
         case WIDGET_SNAKE:
+        case WIDGET_MUSIC:
         case WIDGET_NONE:
             return true;
         default:
@@ -248,6 +250,7 @@ static void saveSettingsToNvs() {
     prefs.putUChar("ssBr", g_settings.screensaverBright);
     prefs.putBool("lowP", g_settings.lowPowerMode);
     prefs.putUChar("hWid", g_settings.homeWidget);
+    prefs.putUChar("ssWid", g_settings.screensaverWidget);
     prefs.putUChar("btnS", g_settings.btnShortAction);
     prefs.putUChar("btnL", g_settings.btnLongAction);
     prefs.putBool("kclick", g_settings.keyClick);
@@ -283,6 +286,7 @@ static void saveSettingsToNvs() {
     prefs.putBytes("sWifis", g_settings.savedWifis, sizeof(g_settings.savedWifis));
     prefs.putUShort("snkHi", g_settings.snakeHighScore);
     prefs.putUShort("flpHi", g_settings.flappyHighScore);
+    prefs.putBool("autoUpd", g_settings.autoUpdateApps);
     prefs.putString("stUrl", g_settings.storeUrl);
 
     prefs.putString("instBin", g_settings.installedBinName);
@@ -304,6 +308,7 @@ static void saveSettingsToFile() {
     doc["ssBright"] = g_settings.screensaverBright;
     doc["lowPower"] = g_settings.lowPowerMode;
     doc["homeWidget"] = g_settings.homeWidget;
+    doc["ssWidget"] = g_settings.screensaverWidget;
     doc["btnShort"] = g_settings.btnShortAction;
     doc["btnLong"] = g_settings.btnLongAction;
     doc["keyClick"] = g_settings.keyClick;
@@ -342,6 +347,7 @@ static void saveSettingsToFile() {
     doc["minerWallet"] = g_settings.minerWallet;
     doc["snakeHigh"] = g_settings.snakeHighScore;
     doc["flappyHigh"] = g_settings.flappyHighScore;
+    doc["autoUpdate"] = g_settings.autoUpdateApps;
     doc["storeUrl"] = g_settings.storeUrl;
 
     JsonArray sw = doc["savedWifis"].to<JsonArray>();
@@ -373,6 +379,7 @@ void loadSettings() {
     g_settings.screensaverBright = prefs.getUChar("ssBr", 35);
     g_settings.lowPowerMode      = prefs.getBool("lowP", false);
     g_settings.homeWidget        = prefs.getUChar("hWid", WIDGET_WEATHER) % WIDGET_COUNT;
+    g_settings.screensaverWidget = prefs.getUChar("ssWid", WIDGET_WEATHER) % WIDGET_COUNT;
     g_settings.btnShortAction    = prefs.getUChar("btnS", BTN_ACT_HOME) % BTN_ACT_COUNT;
     g_settings.btnLongAction     = prefs.getUChar("btnL", BTN_ACT_SLEEP) % BTN_ACT_COUNT;
     g_settings.keyClick          = prefs.getBool("kclick", false);
@@ -421,6 +428,7 @@ void loadSettings() {
     }
     g_settings.snakeHighScore  = prefs.getUShort("snkHi", 0);
     g_settings.flappyHighScore = prefs.getUShort("flpHi", 0);
+    g_settings.autoUpdateApps  = prefs.getBool("autoUpd", false);
     String stUrl = prefs.getString("stUrl", "https://raw.githubusercontent.com/Codepmalex/CardOS/main/store/catalog.json");
     if (stUrl.indexOf("alexlaspro/CardOS-Store") >= 0) {
         stUrl = "https://raw.githubusercontent.com/Codepmalex/CardOS/main/store/catalog.json";
@@ -455,6 +463,7 @@ void syncSettingsWithStorage() {
     if (doc["ssBright"].is<int>())       g_settings.screensaverBright = constrain(doc["ssBright"].as<int>(), 10, 200);
     if (doc["lowPower"].is<bool>())      g_settings.lowPowerMode = doc["lowPower"].as<bool>();
     if (doc["homeWidget"].is<int>())     g_settings.homeWidget = doc["homeWidget"].as<int>() % WIDGET_COUNT;
+    if (doc["ssWidget"].is<int>())       g_settings.screensaverWidget = doc["ssWidget"].as<int>() % WIDGET_COUNT;
     if (doc["btnShort"].is<int>())       g_settings.btnShortAction = doc["btnShort"].as<int>() % BTN_ACT_COUNT;
     if (doc["btnLong"].is<int>())        g_settings.btnLongAction = doc["btnLong"].as<int>() % BTN_ACT_COUNT;
     if (doc["keyClick"].is<bool>())      g_settings.keyClick = doc["keyClick"].as<bool>();
@@ -497,6 +506,7 @@ void syncSettingsWithStorage() {
     if (doc["minerWallet"].is<const char*>()) strlcpy(g_settings.minerWallet, doc["minerWallet"].as<const char*>(), sizeof(g_settings.minerWallet));
     if (doc["snakeHigh"].is<int>())           g_settings.snakeHighScore = (uint16_t)max(0, doc["snakeHigh"].as<int>());
     if (doc["flappyHigh"].is<int>())          g_settings.flappyHighScore = (uint16_t)max(0, doc["flappyHigh"].as<int>());
+    if (doc["autoUpdate"].is<bool>())         g_settings.autoUpdateApps = doc["autoUpdate"].as<bool>();
     if (doc["storeUrl"].is<const char*>()) {
         String u = doc["storeUrl"].as<const char*>();
         if (u.indexOf("alexlaspro/CardOS-Store") >= 0) {

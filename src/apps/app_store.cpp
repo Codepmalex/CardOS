@@ -329,11 +329,15 @@ private:
     }
 
     static String getInstalledAppVersion(const String& id) {
-        if (!g_sys.sdMounted && !g_sys.spiffsMounted) return "";
+        if (!g_sys.sdMounted && !g_sys.spiffsMounted) {
+            return (id == "music") ? String(CARDOS_VERSION) : "";
+        }
         String pkg = "/store/" + id + ".json";
-        if (!activeFS().exists(pkg.c_str())) return "";
+        if (!activeFS().exists(pkg.c_str())) {
+            return (id == "music") ? String(CARDOS_VERSION) : "";
+        }
         String raw = readTextFile(pkg.c_str(), 4096);
-        if (raw.isEmpty()) return "";
+        if (raw.isEmpty()) return (id == "music") ? String(CARDOS_VERSION) : "";
         JsonDocument doc;
         if (deserializeJson(doc, raw) != DeserializationError::Ok) return "";
         return String(doc["version"] | "");
@@ -365,7 +369,7 @@ private:
         m_updates.clear();
         for (int i = 0; i < (int)m_catalog.size(); ++i) {
             auto& it = m_catalog[i];
-            if (isStoreAppInstalled(it.id)) {
+            if (isStoreAppInstalled(it.id) || it.id == "music") {
                 it.installedVer = getInstalledAppVersion(it.id);
                 it.hasUpdate = isVersionNewer(it.version, it.installedVer);
                 if (it.hasUpdate) m_updates.push_back(i);
@@ -391,7 +395,22 @@ private:
             ensureDir("/store");
             writeTextFile("/store/catalog.json", body);
             refreshUpdateFlags();
-            if (m_updates.empty()) {
+            if (!m_updates.empty() && g_settings.autoUpdateApps) {
+                std::vector<int> todo = m_updates;
+                int applied = 0;
+                for (int idx : todo) {
+                    if (idx >= 0 && idx < (int)m_catalog.size()) {
+                        StoreItem itemCopy = m_catalog[idx];
+                        downloadAndInstall(itemCopy, true);
+                        applied++;
+                    }
+                }
+                refreshUpdateFlags();
+                snprintf(m_statusMsg, sizeof(m_statusMsg), "Auto-updated %d app(s)", applied);
+                if (showUpdateToast) {
+                    showToast((String("Auto-updated ") + String(applied) + " app(s)!").c_str(), 1800);
+                }
+            } else if (m_updates.empty()) {
                 strlcpy(m_statusMsg, "Synced (all apps up to date)", sizeof(m_statusMsg));
                 if (showUpdateToast) showToast("All apps up to date", 1400);
             } else {
@@ -508,7 +527,7 @@ private:
             m_editingUrl = true;
         } else if (ev.code == CK_ENTER && !m_filtered.empty()) {
             const auto& it = m_catalog[m_filtered[m_storeSel]];
-            if (isStoreAppInstalled(it.id)) {
+            if (isStoreAppInstalled(it.id) || it.id == "music") {
                 if (it.hasUpdate) {
                     downloadAndInstall(it, true);
                 } else if (isLuaStoreAppInstalled(it.id)) {
@@ -539,6 +558,10 @@ private:
             if (m_updSel >= m_updScroll + 3) m_updScroll = m_updSel - 2;
         } else if (ev.code == CK_CHAR && (ev.ch == 'r' || ev.ch == 'R')) {
             fetchCatalog(true);
+        } else if (ev.code == CK_CHAR && (ev.ch == 't' || ev.ch == 'T')) {
+            g_settings.autoUpdateApps = !g_settings.autoUpdateApps;
+            saveSettings();
+            showToast(g_settings.autoUpdateApps ? "Auto-Update ON" : "Auto-Update OFF", 1400);
         } else if (ev.code == CK_ENTER && !m_updates.empty()) {
             StoreItem itemCopy = m_catalog[m_updates[m_updSel]];
             downloadAndInstall(itemCopy, true);
@@ -620,7 +643,7 @@ private:
                 if (fp >= (int)m_filtered.size()) break;
                 const auto& it = m_catalog[m_filtered[fp]];
                 bool sel = (fp == m_storeSel);
-                bool inst = isStoreAppInstalled(it.id);
+                bool inst = isStoreAppInstalled(it.id) || (it.id == "music");
 
                 int y = 45 + row * 25;
                 spr.fillRoundRect(6, y, SCREEN_W - 16, 23, 4, sel ? th.surface2 : th.surface);
@@ -657,9 +680,18 @@ private:
         spr.setTextSize(1);
         spr.setTextColor(th.textDim);
         char hdr[36];
-        snprintf(hdr, sizeof(hdr), "%d Update%s Available",
+        snprintf(hdr, sizeof(hdr), "%d Update%s",
                  (int)m_updates.size(), m_updates.size() == 1 ? "" : "s");
         spr.drawString(hdr, 8, 34);
+
+        // Auto-Update toggle badge
+        int ax = m_updates.empty() ? (SCREEN_W - 76) : (SCREEN_W - 148);
+        spr.fillRoundRect(ax, 32, 68, 12, 3, g_settings.autoUpdateApps ? th.ok : th.surface);
+        if (!g_settings.autoUpdateApps) spr.drawRoundRect(ax, 32, 68, 12, 3, th.border);
+        spr.setTextColor(g_settings.autoUpdateApps ? th.bg : th.textDim);
+        spr.setTextDatum(MC_DATUM);
+        spr.drawString(g_settings.autoUpdateApps ? "[T]Auto:ON" : "[T]Auto:OFF", ax + 34, 38);
+        spr.setTextDatum(TL_DATUM);
 
         if (!m_updates.empty()) {
             spr.fillRoundRect(SCREEN_W - 76, 32, 70, 12, 3, th.warn);
@@ -679,7 +711,7 @@ private:
             spr.setTextColor(acc);
             spr.drawString("Press [R] to check again.", 18, 94);
             spr.setTextColor(th.textDim);
-            spr.drawString("[R] Check Updates   [ESC] Home", 6, 125);
+            spr.drawString("[T]Auto  [R]Check   [ESC] Home", 6, 125);
             return;
         }
 
@@ -708,7 +740,7 @@ private:
         ui::drawScrollbar(spr, SCREEN_W - 6, 46, 74, (int)m_updates.size(), 3, m_updScroll);
 
         spr.setTextColor(th.textDim);
-        spr.drawString("[Ent]Update [A]Upd All [R]Check", 6, 125);
+        spr.drawString("[Ent]Upd [A]All [T]Auto [R]Chk", 6, 125);
     }
 
     void renderBinsTab(M5Canvas& spr, const ThemePalette& th, uint16_t acc) {

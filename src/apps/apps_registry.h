@@ -18,7 +18,12 @@ App* createMinerApp();
 App* createSysInfoApp();
 App* createSnakeApp();
 App* createFlappyApp();
+App* createMusicApp();
 App* createLuaRunnerApp();
+
+// Background audio tick for Music app
+void tickMusicPlayer();
+void stopMusicPlayback();
 
 // Launch a downloaded Store Lua script app (/store/<appId>.lua)
 void launchLuaApp(const String& appId);

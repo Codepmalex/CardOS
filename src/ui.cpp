@@ -335,6 +335,16 @@ void drawAppIcon(M5Canvas& spr, int cx, int cy, AppId id, uint16_t color, bool i
             spr.fillTriangle(cx + 3, cy - 1, cx + 7, cy + 1, cx + 3, cy + 2, rgb565(251, 146, 60));
             spr.drawFastHLine(cx - 6, cy, 4, rgb565(250, 204, 21));
             break;
+        case APP_MUSIC: {
+            // Musical eighth-note + sound wave arc
+            spr.fillCircle(cx - 4, cy + 4, 3, color);
+            spr.fillCircle(cx + 3, cy + 3, 3, color);
+            spr.drawFastVLine(cx - 2, cy - 5, 9, color);
+            spr.drawFastVLine(cx + 5, cy - 6, 9, color);
+            spr.drawLine(cx - 2, cy - 5, cx + 5, cy - 6, color);
+            spr.drawLine(cx - 2, cy - 3, cx + 5, cy - 4, color);
+            break;
+        }
         case APP_LUA_RUNNER:
             // Downloaded app tile with script / spark emblem
             spr.drawRoundRect(cx - 6, cy - 6, 12, 12, 3, color);
@@ -516,6 +526,95 @@ void drawScreensaverFrame(M5Canvas& spr) {
     spr.setTextSize(1);
     spr.setTextColor(rgb565(148, 163, 184));
     spr.drawString(dBuf, cx, cy + 26);
+
+    // Optional configurable Screensaver Widget
+    if (g_settings.screensaverWidget != WIDGET_NONE) {
+        String wTxt;
+        uint16_t wCol = rgb565(125, 211, 252);
+        switch (g_settings.screensaverWidget) {
+            case WIDGET_WEATHER:
+                if (g_sys.weather.valid) {
+                    wTxt = String(g_sys.weather.city) + " " + formatTemp(g_sys.weather.tempC, true);
+                    wCol = rgb565(56, 189, 248);
+                } else {
+                    wTxt = "Weather: --";
+                    wCol = rgb565(100, 116, 139);
+                }
+                break;
+            case WIDGET_MUSIC:
+                if (g_sys.music.trackName[0] != '\0') {
+                    wTxt = String(g_sys.music.playing ? (g_sys.music.paused ? "|| " : "> ") : "[] ")
+                         + g_sys.music.trackName;
+                    if (g_sys.music.shuffle) wTxt += " [S]";
+                    wCol = g_sys.music.playing ? rgb565(52, 211, 153) : rgb565(148, 163, 184);
+                } else if (g_sys.music.streaming) {
+                    wTxt = String("Phone Stream ") + g_sys.wifiIp;
+                    wCol = rgb565(167, 139, 250);
+                } else {
+                    wTxt = "Music: Idle";
+                    wCol = rgb565(148, 163, 184);
+                }
+                break;
+            case WIDGET_MINER: {
+                char wb[40];
+                if (g_sys.minerPool.valid) {
+                    snprintf(wb, sizeof(wb), "Miner %d/%d %.1f",
+                             g_sys.minerPool.onlineWorkers, g_sys.minerPool.totalWorkers,
+                             g_sys.minerPool.balTotal);
+                } else {
+                    snprintf(wb, sizeof(wb), "Miner: --");
+                }
+                wTxt = wb;
+                wCol = rgb565(250, 204, 21);
+                break;
+            }
+            case WIDGET_SYSINFO: {
+                char wb[36];
+                snprintf(wb, sizeof(wb), "Heap:%uKB Bat:%d%%",
+                         (unsigned)(ESP.getFreeHeap() / 1024),
+                         g_sys.batteryPct);
+                wTxt = wb;
+                wCol = rgb565(74, 222, 128);
+                break;
+            }
+            case WIDGET_CALENDAR: {
+                char wb[36];
+                snprintf(wb, sizeof(wb), "Today: %d ev  %d notes",
+                         g_sys.todayEventsCount, g_sys.notesCount);
+                wTxt = wb;
+                wCol = rgb565(244, 114, 182);
+                break;
+            }
+            case WIDGET_NOTES: {
+                char wb[28];
+                snprintf(wb, sizeof(wb), "Notes: %d saved", g_sys.notesCount);
+                wTxt = wb;
+                wCol = rgb565(251, 191, 36);
+                break;
+            }
+            case WIDGET_SNAKE: {
+                char wb[28];
+                snprintf(wb, sizeof(wb), "Snake Best: %u", (unsigned)g_settings.snakeHighScore);
+                wTxt = wb;
+                wCol = rgb565(74, 222, 128);
+                break;
+            }
+            case WIDGET_FLAPPY: {
+                char wb[28];
+                snprintf(wb, sizeof(wb), "Flappy Best: %u", (unsigned)g_settings.flappyHighScore);
+                wTxt = wb;
+                wCol = rgb565(250, 204, 21);
+                break;
+            }
+            default:
+                break;
+        }
+        if (wTxt.length() > 0) {
+            if (wTxt.length() > 34) wTxt = wTxt.substring(0, 31) + "...";
+            spr.setTextColor(wCol);
+            spr.drawString(wTxt, cx, SCREEN_H - 36);
+        }
+    }
 
     // Bottom info strip: Battery % + Charging bolt | Wi-Fi status
     int by = SCREEN_H - 22;

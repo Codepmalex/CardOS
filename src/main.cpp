@@ -115,6 +115,7 @@ bool openAppByName(const String& name) {
     if (q == "sysinfo" || q == "stats" || q == "system") { switchApp(APP_SYSINFO); return true; }
     if (q == "snake") { switchApp(APP_SNAKE); return true; }
     if (q == "flappy" || q == "bird") { switchApp(APP_FLAPPY); return true; }
+    if (q == "music" || q == "mp3" || q == "audio" || q == "player") { switchApp(APP_MUSIC); return true; }
     return false;
 }
 
@@ -190,6 +191,7 @@ void setup() {
     while (!s_bootAnimDone) {
         delay(10);
     }
+    checkAndApplyPendingOsUpdate();
 
     M5Cardputer.Display.setRotation(g_settings.flipScreen ? 2 : 0);
     initHardware();
@@ -214,6 +216,7 @@ void setup() {
     s_apps[APP_SYSINFO]   = createSysInfoApp();
     s_apps[APP_SNAKE]      = createSnakeApp();
     s_apps[APP_FLAPPY]     = createFlappyApp();
+    s_apps[APP_MUSIC]      = createMusicApp();
     s_apps[APP_LUA_RUNNER] = createLuaRunnerApp();
 
     // Pre-initialize Calendar & Notes counts for widgets/badges
@@ -286,6 +289,7 @@ void loop() {
     }
 
     tickHardware(hadInput);
+    tickMusicPlayer();
 
     static uint32_t s_lastSaverDrawMs = 0;
     if (g_sys.screensaverActive) {
@@ -296,7 +300,7 @@ void loop() {
             ui::drawScreensaverFrame(s_spr);
             s_spr.pushSprite(0, 0);
         }
-        delay(80);
+        delay((g_sys.music.playing && !g_sys.music.paused) ? 2 : 80);
         return;
     }
 

@@ -6,6 +6,7 @@
 constexpr int SCREEN_W = 240;
 constexpr int SCREEN_H = 135;
 constexpr int STATUS_BAR_H = 16;
+constexpr const char* CARDOS_VERSION = "2.0";
 
 // Cardputer ADV Hardware Pins
 constexpr int SD_SCK_PIN  = 40;
@@ -37,6 +38,7 @@ enum AppId : uint8_t {
     APP_SYSINFO,
     APP_SNAKE,
     APP_FLAPPY,
+    APP_MUSIC,
     APP_LUA_RUNNER,
     APP_COUNT
 };
@@ -53,6 +55,7 @@ enum BtnAction : uint8_t {
     BTN_ACT_MUTE,
     BTN_ACT_LED_TOGGLE,
     BTN_ACT_PROFILE,
+    BTN_ACT_SCREENSAVER,
     BTN_ACT_COUNT
 };
 
@@ -86,6 +89,7 @@ enum HomeWidget : uint8_t {
     WIDGET_NOTES,
     WIDGET_SNAKE,
     WIDGET_FLAPPY,
+    WIDGET_MUSIC,
     WIDGET_NONE,
     WIDGET_COUNT
 };
@@ -191,7 +195,8 @@ static const char* BTN_ACTION_NAMES[BTN_ACT_COUNT] = {
     "Open Calc",
     "Mute Audio",
     "Toggle LED",
-    "Cycle Mode"
+    "Cycle Mode",
+    "Screensaver"
 };
 
 static const char* LED_MODE_NAMES[LED_MODE_COUNT] = {
@@ -222,6 +227,6 @@ static const char* LED_COLOR_NAMES[7] = {
 };
 
 static const char* HOME_WIDGET_NAMES[WIDGET_COUNT] = {
-    "Weather", "Miner", "SysInfo", "Calendar", "Notes", "Snake", "Flappy", "Off"
+    "Weather", "Miner", "SysInfo", "Calendar", "Notes", "Snake", "Flappy", "Music", "Off"
 };
 

@@ -240,6 +240,23 @@ public:
                 spr.setTextDatum(TL_DATUM);
                 break;
             }
+            case WIDGET_MUSIC: {
+                String mw;
+                uint16_t mc = rgb565(148, 163, 184);
+                if (g_sys.music.trackName[0] != '\0') {
+                    mw = String(g_sys.music.playing ? (g_sys.music.paused ? "|| " : "> ") : "")
+                       + g_sys.music.trackName;
+                    if (mw.length() > 19) mw = mw.substring(0, 16) + "...";
+                    mc = g_sys.music.playing ? rgb565(52, 211, 153) : rgb565(186, 230, 253);
+                } else {
+                    mw = "Music: Idle";
+                }
+                spr.setTextColor(mc);
+                spr.setTextDatum(TR_DATUM);
+                spr.drawString(mw, wxEnd, 24);
+                spr.setTextDatum(TL_DATUM);
+                break;
+            }
             case WIDGET_NONE:
             default:
                 break;
@@ -290,19 +307,21 @@ private:
     void refreshTiles() {
         m_tiles.clear();
         for (const auto& k : g_layout.order) {
-            AppId aid = appIdFromKey(k);
-            if (aid != APP_COUNT) {
-                HomeTile t;
-                t.stockId = aid;
-                t.label = getAppName(aid);
-                m_tiles.push_back(t);
-            } else if (isLuaStoreAppInstalled(k)) {
+            if (isLuaStoreAppInstalled(k)) {
                 HomeTile t;
                 t.isLua = true;
                 t.stockId = APP_LUA_RUNNER;
                 t.luaId = k;
                 t.label = getStoreAppDisplayName(k);
                 m_tiles.push_back(t);
+            } else {
+                AppId aid = appIdFromKey(k);
+                if (aid != APP_COUNT) {
+                    HomeTile t;
+                    t.stockId = aid;
+                    t.label = getAppName(aid);
+                    m_tiles.push_back(t);
+                }
             }
         }
 

@@ -314,6 +314,10 @@ void executeBtnAction(BtnAction act) {
             updateLedEngine();
             showToast((String("Mode: ") + PROFILE_NAMES[g_settings.deviceProfile]).c_str(), 1400);
             break;
+        case BTN_ACT_SCREENSAVER:
+            if (g_sys.screensaverActive) exitScreensaver();
+            else enterScreensaver();
+            break;
         default:
             break;
     }
@@ -429,7 +433,9 @@ void tickHardware(bool hadInputEvent) {
         executeBtnAction((BtnAction)g_settings.btnLongAction);
     } else if (!btnDown && s_btnWasDown) {
         if (!s_btnLongFired && (now - s_btnDownMs > 25)) {
-            if (g_sys.screenAsleep) {
+            if (g_sys.screensaverActive) {
+                exitScreensaver();
+            } else if (g_sys.screenAsleep) {
                 wakeScreen();
             } else {
                 executeBtnAction((BtnAction)g_settings.btnShortAction);

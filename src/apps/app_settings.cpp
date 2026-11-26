@@ -342,6 +342,15 @@ private:
             for (int i = 0; i < 5; ++i) { opts.push_back(lbls[i]); vals.push_back(ts[i]); }
             beginDropdown("Screen Timeout", opts, vals, g_settings.screenTimeoutSec, c, idx, false);
             return true;
+        } else if (c == CAT_DISPLAY && idx == 6) {
+            for (int w = 0; w < WIDGET_COUNT; ++w) {
+                if (isWidgetAvailable((uint8_t)w)) {
+                    opts.push_back(HOME_WIDGET_NAMES[w]);
+                    vals.push_back(w);
+                }
+            }
+            beginDropdown("Saver Widget", opts, vals, g_settings.screensaverWidget, c, idx, false);
+            return true;
         } else if (c == CAT_BUTTONS_AUDIO) {
             if (idx == 0) {
                 for (int i = 0; i < PROF_COUNT; ++i) { opts.push_back(PROFILE_NAMES[i]); vals.push_back(i); }
@@ -426,6 +435,8 @@ private:
                 else if (m_ddIdx == 2) g_settings.homeWidget = (uint8_t)(val % WIDGET_COUNT);
             } else if (m_ddCat == CAT_DISPLAY && m_ddIdx == 1) {
                 g_settings.screenTimeoutSec = (uint16_t)val;
+            } else if (m_ddCat == CAT_DISPLAY && m_ddIdx == 6) {
+                g_settings.screensaverWidget = (uint8_t)(val % WIDGET_COUNT);
             } else if (m_ddCat == CAT_BUTTONS_AUDIO) {
                 if (m_ddIdx == 0) { g_settings.deviceProfile = (uint8_t)(val % PROF_COUNT); updateLedEngine(); }
                 else if (m_ddIdx == 1) g_settings.btnShortAction = (uint8_t)(val % BTN_ACT_COUNT);
@@ -700,13 +711,13 @@ private:
     int itemCountForCat(SetCat c) const {
         switch (c) {
             case CAT_APPEARANCE:    return 3;
-            case CAT_DISPLAY:       return 7;
+            case CAT_DISPLAY:       return 8;
             case CAT_BUTTONS_AUDIO: return 5;
             case CAT_LED:           return 4;
             case CAT_WIFI:          return 4;
             case CAT_TIME_WEATHER:  return 5;
             case CAT_NOTIF:         return 8;
-            case CAT_SYSTEM:        return 7;
+            case CAT_SYSTEM:        return 8;
             default:                return 0;
         }
     }
@@ -725,6 +736,7 @@ private:
                 else if (idx == 3) { lbl = "Screen Flip"; val = g_settings.flipScreen ? "180 deg" : "Normal"; }
                 else if (idx == 4) { lbl = "Screensaver"; val = g_settings.screensaverEnabled ? "ON" : "OFF"; }
                 else if (idx == 5) { lbl = "Saver Bright"; val = String((g_settings.screensaverBright * 100) / 255) + "%"; }
+                else if (idx == 6) { lbl = "Saver Widget"; val = String(HOME_WIDGET_NAMES[g_settings.screensaverWidget % WIDGET_COUNT]) + " v"; }
                 else               { lbl = "Test Saver"; val = "[Enter]"; }
                 break;
             case CAT_BUTTONS_AUDIO:
@@ -773,7 +785,8 @@ private:
                 else if (idx == 2) { lbl = "Free Heap"; val = String(ESP.getFreeHeap() / 1024) + "KB"; }
                 else if (idx == 3) { lbl = "App1 Slot"; val = strlen(g_settings.installedBinName) ? "Loaded" : "Empty"; }
                 else if (idx == 4) { lbl = "Boot App1 Now"; val = "[Enter]"; }
-                else if (idx == 5) { lbl = "Factory Reset"; val = "[Enter]"; }
+                else if (idx == 5) { lbl = "Software Update"; val = String("v") + CARDOS_VERSION + " [Ent]"; }
+                else if (idx == 6) { lbl = "Factory Reset"; val = "[Enter]"; }
                 else               { lbl = "Reboot CardOS"; val = "[Enter]"; }
                 break;
             default: break;
@@ -812,6 +825,11 @@ private:
                 } else if (idx == 5) {
                     int sb = (int)g_settings.screensaverBright + d * 20;
                     g_settings.screensaverBright = (uint8_t)constrain(sb, 10, 200);
+                } else if (idx == 6) {
+                    for (int step = 0; step < WIDGET_COUNT; ++step) {
+                        g_settings.screensaverWidget = (g_settings.screensaverWidget + d + WIDGET_COUNT) % WIDGET_COUNT;
+                        if (isWidgetAvailable(g_settings.screensaverWidget)) break;
+                    }
                 } else if (d > 0) {
                     saveSettings();
                     enterScreensaver();
@@ -906,10 +924,14 @@ private:
                         if (!launchInstalledApp1(err)) showToast(err.c_str(), 1800);
                     }
                 } else if (idx == 5 && d > 0) {
+                    saveSettings();
+                    runGithubOsUpdateInteractive();
+                    return;
+                } else if (idx == 6 && d > 0) {
                     factoryResetSettings();
                     applyPowerProfile();
                     showToast("Settings reset!", 1500);
-                } else if (idx == 6 && d > 0) {
+                } else if (idx == 7 && d > 0) {
                     saveWeatherAndTimeCache();
                     delay(40);
                     rebootToCardOS();

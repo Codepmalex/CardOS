@@ -321,6 +321,41 @@ static int l_readLine(lua_State* L) {
     return 1;
 }
 
+static int l_isKeyDown(lua_State* L) {
+    const char* key = luaL_optstring(L, 1, "");
+    if (!key || !key[0] || !M5Cardputer.Keyboard.isPressed()) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    auto st = M5Cardputer.Keyboard.keysState();
+    auto hasCh = [&](char c1, char c2) -> bool {
+        for (char c : st.word) {
+            if (c == c1 || c == c2) return true;
+        }
+        return false;
+    };
+    bool hit = false;
+    if (strcasecmp(key, "left") == 0) {
+        hit = st.left || hasCh(',', ',') || hasCh('a', 'A');
+    } else if (strcasecmp(key, "right") == 0) {
+        hit = st.right || hasCh('/', '/') || hasCh('d', 'D');
+    } else if (strcasecmp(key, "up") == 0) {
+        hit = st.up || hasCh(';', ';') || hasCh('w', 'W');
+    } else if (strcasecmp(key, "down") == 0) {
+        hit = st.down || hasCh('.', '.') || hasCh('s', 'S');
+    } else if (strcasecmp(key, "space") == 0) {
+        hit = hasCh(' ', ' ');
+    } else if (strcasecmp(key, "enter") == 0) {
+        hit = st.enter;
+    } else {
+        char lo = (char)tolower((unsigned char)key[0]);
+        char up = (char)toupper((unsigned char)key[0]);
+        hit = hasCh(lo, up);
+    }
+    lua_pushboolean(L, hit ? 1 : 0);
+    return 1;
+}
+
 static const luaL_Reg CARDOS_LUA_FUNCS[] = {
     {"clear",      l_clear},
     {"statusBar",  l_statusBar},
@@ -338,6 +373,7 @@ static const luaL_Reg CARDOS_LUA_FUNCS[] = {
     {"fileExists", l_fileExists},
     {"countLines", l_countLines},
     {"readLine",   l_readLine},
+    {"isKeyDown",  l_isKeyDown},
     {nullptr, nullptr}
 };
 
@@ -362,6 +398,9 @@ public:
             recordLuaError("init", ("Missing " + path).c_str());
             return;
         }
+
+        // Release audio decoder RAM before booting Lua VM
+        stopMusicPlayback();
 
         m_L = lua_newstate(luaAlloc, nullptr);
         if (!m_L) {

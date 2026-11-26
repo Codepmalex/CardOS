@@ -30,4 +30,6 @@ bool launchInstalledApp1(String& errOut);
 
 // Reboot via DEEPSLEEP_RESET (5) so bootloader_cardos.bin returns to app0 (CardOS)
 void rebootToCardOS();
+bool checkAndApplyPendingOsUpdate();
+bool runGithubOsUpdateInteractive();
 

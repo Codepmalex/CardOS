@@ -37,6 +37,7 @@ struct Settings {
     uint8_t screensaverBright = 35;  // 10..200
     bool lowPowerMode = false;
     uint8_t homeWidget = WIDGET_WEATHER;
+    uint8_t screensaverWidget = WIDGET_WEATHER;
 
     // Buttons & Audio
     uint8_t btnShortAction = BTN_ACT_HOME;
@@ -83,6 +84,7 @@ struct Settings {
     // Games & GitHub App Store
     uint16_t snakeHighScore = 0;
     uint16_t flappyHighScore = 0;
+    bool autoUpdateApps = false;
     char storeUrl[128] = "https://raw.githubusercontent.com/Codepmalex/CardOS/main/store/catalog.json";
 
     // Installed third-party app tracking (in app1 partition)
@@ -218,8 +220,18 @@ struct SystemState {
     bool weatherNotified = false;
     bool rainNotified = false;
 
+struct MusicLiveState {
+    bool playing = false;
+    bool paused = false;
+    bool shuffle = false;
+    bool streaming = false;
+    char trackName[48] = "";
+    char playlist[32] = "";
+};
+
     WeatherData weather;
     MinerPoolLive minerPool;
+    MusicLiveState music;
 };
 
 struct HomeLayout {
