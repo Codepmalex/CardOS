@@ -27,6 +27,11 @@ public:
         loadDir(resetPos);
     }
 
+    void onExit() override {
+        std::vector<FileEntry>().swap(m_entries);
+        m_newDirName = String();
+    }
+
     void onInput(const InputEvent& ev) override {
         if (m_creatingDir) {
             if (ev.code == CK_ESC || (ev.code == CK_CHAR && ev.ch == '`')) {

@@ -33,6 +33,13 @@ public:
         }
     }
 
+    void onExit() override {
+        std::vector<FileEntry>().swap(m_files);
+        m_content = String();
+        m_newName = String();
+        m_curPath = String();
+    }
+
     void onInput(const InputEvent& ev) override {
         if (m_mode == MODE_LIST) {
             handleListInput(ev);

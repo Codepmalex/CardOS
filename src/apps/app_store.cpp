@@ -51,6 +51,13 @@ public:
         rebuildFiltered();
     }
 
+    void onExit() override {
+        std::vector<StoreItem>().swap(m_catalog);
+        std::vector<int>().swap(m_filtered);
+        std::vector<FileEntry>().swap(m_bins);
+        m_urlInput = String();
+    }
+
     void onInput(const InputEvent& ev) override {
         if (m_editingUrl) {
             handleUrlEditInput(ev);

@@ -23,6 +23,12 @@ public:
         requestWifiScan();
     }
 
+    void onExit() override {
+        std::vector<WifiNetInfo>().swap(m_nets);
+        m_targetSsid = String();
+        m_passInput = String();
+    }
+
     void onTick() override {
         uint32_t seq = getWifiScanSeq();
         if (seq != m_lastSeq) {

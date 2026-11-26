@@ -37,6 +37,12 @@ public:
         }
     }
 
+    void onExit() override {
+        std::vector<SearchMatch>().swap(m_results);
+        m_searchQuery = String();
+        m_searchFocused = false;
+    }
+
     void onTick() override {
         float targetY = m_scrollRow * 37.0f;
         float diff = targetY - m_scrollY;
