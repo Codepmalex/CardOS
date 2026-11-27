@@ -19,17 +19,25 @@ static uint32_t s_lastLedUpdateMs = 0;
 static uint32_t s_lastTimeCacheMs = 0;
 static bool s_ledValid = false;
 static uint8_t s_lastR = 0, s_lastG = 0, s_lastB = 0;
+static uint32_t s_lastLedRefreshMs = 0;
 
 static void setLedRgb(uint8_t r, uint8_t g, uint8_t b, bool force = false) {
-    if (!force && s_ledValid && r == s_lastR && g == s_lastG && b == s_lastB) return;
+    uint32_t now = millis();
+    if (!force && s_ledValid && r == s_lastR && g == s_lastG && b == s_lastB && (now - s_lastLedRefreshMs < 1000)) {
+        return;
+    }
     s_ledValid = true;
     s_lastR = r;
     s_lastG = g;
     s_lastB = b;
+    s_lastLedRefreshMs = now;
     neopixelWrite(LED_PIN, r, g, b);
 }
 
 void initHardware() {
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LOW);
+    delay(2);
     setLedRgb(0, 0, 0, true);
 
     M5Cardputer.Speaker.setVolume(g_settings.volume);
@@ -564,28 +572,32 @@ void updateLedEngine() {
     }
 
     // Notification LED alert (active in Sound and Silent modes)
-    if (now < g_sys.ledNotifyUntilMs && g_settings.notifEnabled) {
-        uint8_t br = g_settings.ledBrightness;
-        uint8_t nr = (g_sys.ledNotifyColor >> 16) & 0xFF;
-        uint8_t ng = (g_sys.ledNotifyColor >> 8) & 0xFF;
-        uint8_t nb = g_sys.ledNotifyColor & 0xFF;
-        float mult = 1.0f;
-        if (g_sys.ledNotifyPattern == 0) {
-            // Smooth sine-wave pulse
-            mult = 0.08f + 0.92f * (sinf((now % 1400) * 2.0f * PI / 1400.0f) + 1.0f) * 0.5f;
-        } else if (g_sys.ledNotifyPattern == 1) {
-            // Standard Blink
-            mult = (((now / 350) % 2) == 0) ? 1.0f : 0.0f;
-        } else if (g_sys.ledNotifyPattern == 2) {
-            // Fast Flash
-            mult = (((now / 110) % 2) == 0) ? 1.0f : 0.0f;
-        } else {
-            // Solid
-            mult = 1.0f;
+    if (g_sys.ledNotifyUntilMs != 0 && g_settings.notifEnabled) {
+        if (now < g_sys.ledNotifyUntilMs) {
+            uint8_t br = g_settings.ledBrightness;
+            uint8_t nr = (g_sys.ledNotifyColor >> 16) & 0xFF;
+            uint8_t ng = (g_sys.ledNotifyColor >> 8) & 0xFF;
+            uint8_t nb = g_sys.ledNotifyColor & 0xFF;
+            float mult = 1.0f;
+            if (g_sys.ledNotifyPattern == 0) {
+                // Smooth sine-wave pulse
+                mult = 0.08f + 0.92f * (sinf((now % 1400) * 2.0f * PI / 1400.0f) + 1.0f) * 0.5f;
+            } else if (g_sys.ledNotifyPattern == 1) {
+                // Standard Blink
+                mult = (((now / 350) % 2) == 0) ? 1.0f : 0.0f;
+            } else if (g_sys.ledNotifyPattern == 2) {
+                // Fast Flash
+                mult = (((now / 110) % 2) == 0) ? 1.0f : 0.0f;
+            } else {
+                // Solid
+                mult = 1.0f;
+            }
+            uint8_t eff = (uint8_t)(br * mult);
+            setLedRgb((nr * eff) / 255, (ng * eff) / 255, (nb * eff) / 255);
+            return;
         }
-        uint8_t eff = (uint8_t)(br * mult);
-        setLedRgb((nr * eff) / 255, (ng * eff) / 255, (nb * eff) / 255);
-        return;
+        g_sys.ledNotifyUntilMs = 0;
+        setLedRgb(0, 0, 0, true);
     }
 
     if (!g_settings.ledEnabled || g_settings.ledMode == LED_OFF || g_sys.screenAsleep || g_sys.screensaverActive || g_settings.lowPowerMode) {

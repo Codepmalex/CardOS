@@ -190,14 +190,16 @@ void drawToastOverlay(M5Canvas& spr) {
     int h = 18;
     int x = (SCREEN_W - w) / 2;
 
-    // Smooth slide-in (110ms) and slide-out (110ms)
+    // Smooth eased slide-in (140ms) and slide-out (140ms)
     int slideOffset = 0;
-    uint32_t elapsed = (now >= g_sys.toastStartMs) ? (now - g_sys.toastStartMs) : 110;
+    uint32_t elapsed = (now >= g_sys.toastStartMs) ? (now - g_sys.toastStartMs) : 140;
     uint32_t rem = g_sys.toastUntilMs - now;
-    if (elapsed < 110) {
-        slideOffset = (int)(((110 - elapsed) * 10) / 110);
-    } else if (rem < 110) {
-        slideOffset = (int)(((110 - rem) * 10) / 110);
+    if (elapsed < 140) {
+        float e = easeOutCubic((float)elapsed / 140.0f);
+        slideOffset = (int)roundf((1.0f - e) * 14.0f);
+    } else if (rem < 140) {
+        float e = easeOutCubic((float)rem / 140.0f);
+        slideOffset = (int)roundf((1.0f - e) * 14.0f);
     }
     int y = SCREEN_H - h - 4 + slideOffset;
 

@@ -33,9 +33,14 @@ public:
     void onEnter() override {
         m_moveMode = false;
         m_ctrlOpen = false;
+        m_ctrlClosing = false;
+        m_ctrlAnim = 0.0f;
         closeNotifPane();
         refreshTiles();
         m_scrollY = m_scrollRow * 37.0f;
+        m_selAnimX = 6.0f + (m_selIdx % 4) * 58.0f;
+        m_selAnimY = (float)((m_selIdx / 4) * 37);
+        m_resSelAnimY = 60.0f;
         if (g_sys.focusSearchOnHome) {
             g_sys.focusSearchOnHome = false;
             m_searchFocused = true;
@@ -45,6 +50,8 @@ public:
     void onExit() override {
         m_moveMode = false;
         m_ctrlOpen = false;
+        m_ctrlClosing = false;
+        m_ctrlAnim = 0.0f;
         closeNotifPane();
         std::vector<HomeTile>().swap(m_tiles);
         std::vector<SearchMatch>().swap(m_results);
@@ -53,12 +60,36 @@ public:
     }
 
     void onTick() override {
-        float targetY = m_scrollRow * 37.0f;
-        float diff = targetY - m_scrollY;
-        if (fabsf(diff) < 0.8f) {
-            m_scrollY = targetY;
-        } else {
-            m_scrollY += diff * 0.34f;
+        m_scrollY = ui::smoothMove(m_scrollY, m_scrollRow * 37.0f, 0.38f);
+        float tgtX = 6.0f + (m_selIdx % 4) * 58.0f;
+        float tgtY = (float)((m_selIdx / 4) * 37);
+        m_selAnimX = ui::smoothMove(m_selAnimX, tgtX, 0.48f);
+        m_selAnimY = ui::smoothMove(m_selAnimY, tgtY, 0.48f);
+        m_resSelAnimY = ui::smoothMove(m_resSelAnimY, 60.0f + (m_resIdx - m_resScroll) * 18.0f, 0.48f);
+
+        if (m_notifOpen) {
+            if (m_notifClosing) {
+                m_notifAnim -= 0.34f;
+                if (m_notifAnim <= 0.0f) {
+                    closeNotifPane();
+                }
+            } else {
+                if (m_notifAnim < 1.0f) m_notifAnim = min(1.0f, m_notifAnim + 0.30f);
+                m_notifSelAnimY = ui::smoothMove(m_notifSelAnimY, 57.0f + (m_notifSel - m_notifScroll) * 21.0f, 0.48f);
+            }
+        }
+        if (m_ctrlOpen) {
+            if (m_ctrlClosing) {
+                m_ctrlAnim -= 0.34f;
+                if (m_ctrlAnim <= 0.0f) {
+                    m_ctrlAnim = 0.0f;
+                    m_ctrlOpen = false;
+                    m_ctrlClosing = false;
+                }
+            } else {
+                if (m_ctrlAnim < 1.0f) m_ctrlAnim = min(1.0f, m_ctrlAnim + 0.30f);
+                m_ctrlSelAnimY = ui::smoothMove(m_ctrlSelAnimY, 56.0f + (m_ctrlSel - m_ctrlScroll) * 19.0f, 0.48f);
+            }
         }
     }
 
@@ -104,8 +135,11 @@ public:
             return;
         } else if (ev.code == CK_CHAR && ev.ch == ']') {
             m_ctrlOpen = true;
+            m_ctrlClosing = false;
+            m_ctrlAnim = 0.14f;
             m_ctrlSel = 0;
             m_ctrlScroll = 0;
+            m_ctrlSelAnimY = 56.0f;
             return;
         } else if (isNavLeft(ev)) {
             if (m_selIdx > 0) m_selIdx--;
@@ -365,6 +399,8 @@ private:
     int m_selIdx = 0;
     int m_scrollRow = 0;
     float m_scrollY = 0.0f;
+    float m_selAnimX = 6.0f;
+    float m_selAnimY = 0.0f;
 
     bool m_searchFocused = false;
     bool m_moveMode = false;
@@ -372,8 +408,12 @@ private:
     std::vector<SearchMatch> m_results;
     int m_resIdx = 0;
     int m_resScroll = 0;
+    float m_resSelAnimY = 60.0f;
 
     bool m_notifOpen = false;
+    bool m_notifClosing = false;
+    float m_notifAnim = 0.0f;
+    float m_notifSelAnimY = 57.0f;
     std::vector<NotifRecord> m_notifs;
     int m_notifSel = 0;
     int m_notifScroll = 0;
@@ -381,6 +421,9 @@ private:
     int m_notifDetailScroll = 0;
 
     bool m_ctrlOpen = false;
+    bool m_ctrlClosing = false;
+    float m_ctrlAnim = 0.0f;
+    float m_ctrlSelAnimY = 56.0f;
     int m_ctrlSel = 0;
     int m_ctrlScroll = 0;
 
@@ -623,11 +666,7 @@ private:
                 bool sel = (!m_searchFocused && idx == m_selIdx);
 
                 spr.fillRoundRect(x, y, cellW, cellH, 5, sel ? th.surface2 : th.surface);
-                uint16_t bCol = sel ? (m_moveMode ? th.warn : acc) : th.border;
-                spr.drawRoundRect(x, y, cellW, cellH, 5, bCol);
-                if (sel && m_moveMode) {
-                    spr.drawRoundRect(x + 1, y + 1, cellW - 2, cellH - 2, 4, th.warn);
-                }
+                spr.drawRoundRect(x, y, cellW, cellH, 5, th.border);
 
                 const auto& t = m_tiles[idx];
                 uint16_t iconCol = sel ? acc : (t.isBin ? th.warn : (t.isLua ? acc : th.accent2));
@@ -641,6 +680,13 @@ private:
                 spr.drawString(lbl, x + cellW / 2, y + 23);
                 spr.setTextDatum(TL_DATUM);
             }
+        }
+        if (!m_searchFocused && !m_tiles.empty()) {
+            int gx = (int)roundf(m_selAnimX);
+            int gy = startY + (int)roundf(m_selAnimY - m_scrollY);
+            uint16_t bCol = m_moveMode ? th.warn : acc;
+            spr.drawRoundRect(gx, gy, cellW, cellH, 5, bCol);
+            if (m_moveMode) spr.drawRoundRect(gx + 1, gy + 1, cellW - 2, cellH - 2, 4, th.warn);
         }
         spr.clearClipRect();
         ui::drawScrollbar(spr, SCREEN_W - 5, startY, 70, totalRows, 2, m_scrollRow);
@@ -665,7 +711,6 @@ private:
             bool sel = (idx == m_resIdx);
 
             spr.fillRoundRect(6, y, SCREEN_W - 14, 16, 3, sel ? th.surface2 : th.surface);
-            if (sel) spr.drawRoundRect(6, y, SCREEN_W - 14, 16, 3, acc);
 
             const auto& m = m_results[idx];
             spr.setTextSize(1);
@@ -681,6 +726,7 @@ private:
             spr.drawString(sub, SCREEN_W - 12, y + 4);
             spr.setTextDatum(TL_DATUM);
         }
+        spr.drawRoundRect(6, (int)roundf(m_resSelAnimY), SCREEN_W - 14, 16, 3, acc);
         ui::drawScrollbar(spr, SCREEN_W - 5, y0, 72, (int)m_results.size(), 4, m_resScroll);
     }
 
@@ -699,17 +745,24 @@ private:
 
     void openNotifPane() {
         m_notifOpen = true;
+        m_notifClosing = false;
+        m_notifAnim = 0.14f;
         m_notifDetail = false;
         m_notifSel = 0;
         m_notifScroll = 0;
+        m_notifSelAnimY = 57.0f;
         m_notifDetailScroll = 0;
         m_searchFocused = false;
         g_sys.unreadNotifCount = 0;
+        g_sys.ledNotifyUntilMs = 0;
+        updateLedEngine();
         m_notifs = loadNotificationsFromSd(30);
     }
 
     void closeNotifPane() {
         m_notifOpen = false;
+        m_notifClosing = false;
+        m_notifAnim = 0.0f;
         m_notifDetail = false;
         std::vector<NotifRecord>().swap(m_notifs);
     }
@@ -726,12 +779,12 @@ private:
         }
 
         if (isNavBack(ev) || (ev.code == CK_CHAR && (ev.ch == '!' || ev.ch == '1' || ev.ch == '['))) {
-            closeNotifPane();
+            m_notifClosing = true;
             return;
         }
 
         if (m_notifs.empty()) {
-            if (ev.code == CK_ENTER) closeNotifPane();
+            if (ev.code == CK_ENTER) m_notifClosing = true;
             return;
         }
 
@@ -765,59 +818,63 @@ private:
     void renderNotifPane(M5Canvas& spr) {
         const auto& th = activeTheme();
         uint16_t acc = activeAccent();
+        int offY = (int)roundf((1.0f - ui::easeOutCubic(m_notifAnim)) * 96.0f);
 
-        // Full-screen shade drawer below header (y: 38..134)
-        spr.fillRoundRect(4, 39, SCREEN_W - 8, SCREEN_H - 42, 6, th.surface);
-        spr.drawRoundRect(4, 39, SCREEN_W - 8, SCREEN_H - 42, 6, acc);
+        // Smooth pull-down shade drawer below header (y: 39..132)
+        spr.setClipRect(4, 39, SCREEN_W - 8, SCREEN_H - 42);
+        spr.fillRoundRect(4, 39 - offY, SCREEN_W - 8, SCREEN_H - 42, 6, th.surface);
+        spr.drawRoundRect(4, 39 - offY, SCREEN_W - 8, SCREEN_H - 42, 6, acc);
 
         if (m_notifDetail && m_notifSel >= 0 && m_notifSel < (int)m_notifs.size()) {
             const auto& nr = m_notifs[m_notifSel];
             uint16_t nc = notifColor(nr.app, th);
-            spr.fillRoundRect(10, 44, 26, 11, 3, nc);
+            spr.fillRoundRect(10, 44 - offY, 26, 11, 3, nc);
             spr.setTextSize(1);
             spr.setTextColor(th.bg);
-            spr.drawString(notifTag(nr.app), 14, 46);
+            spr.drawString(notifTag(nr.app), 14, 46 - offY);
             spr.setTextColor(th.textDim);
             spr.setTextDatum(TR_DATUM);
-            spr.drawString(nr.timeStr, SCREEN_W - 12, 46);
+            spr.drawString(nr.timeStr, SCREEN_W - 12, 46 - offY);
             spr.setTextDatum(TL_DATUM);
 
             int totalL = 0;
             spr.setTextColor(th.text);
-            ui::drawWrappedText(spr, nr.msg, 12, 60, SCREEN_W - 28, 52, 10, m_notifDetailScroll, &totalL);
+            ui::drawWrappedText(spr, nr.msg, 12, 60 - offY, SCREEN_W - 28, 52, 10, m_notifDetailScroll, &totalL);
             if (totalL > 5) {
                 m_notifDetailScroll = constrain(m_notifDetailScroll, 0, totalL - 5);
-                ui::drawScrollbar(spr, SCREEN_W - 12, 59, 50, totalL, 5, m_notifDetailScroll);
+                ui::drawScrollbar(spr, SCREEN_W - 12, 59 - offY, 50, totalL, 5, m_notifDetailScroll);
             } else {
                 m_notifDetailScroll = 0;
             }
             spr.setTextColor(acc);
-            spr.drawString("[Up/Dn]Scroll   [Esc/Ent]Back", 12, 121);
+            spr.drawString("[Up/Dn]Scroll   [Esc/Ent]Back", 12, 121 - offY);
+            spr.clearClipRect();
             return;
         }
 
         spr.setTextSize(1);
         spr.setTextColor(acc);
-        char hdr[32];
-        snprintf(hdr, sizeof(hdr), "Notifications (%d)", (int)m_notifs.size());
-        spr.drawString(hdr, 10, 43);
+        char hdr[24];
+        snprintf(hdr, sizeof(hdr), "Notifs (%d)", (int)m_notifs.size());
+        spr.drawString(hdr, 10, 43 - offY);
         spr.setTextColor(th.textDim);
         spr.setTextDatum(TR_DATUM);
-        spr.drawString("[C]Clear [Esc]Close", SCREEN_W - 10, 43);
+        spr.drawString("[C]Clear [Esc]Close", SCREEN_W - 10, 43 - offY);
         spr.setTextDatum(TL_DATUM);
-        spr.drawFastHLine(8, 54, SCREEN_W - 16, th.border);
+        spr.drawFastHLine(8, 54 - offY, SCREEN_W - 16, th.border);
 
         if (m_notifs.empty()) {
             spr.setTextDatum(MC_DATUM);
             spr.setTextColor(th.textDim);
-            spr.drawString("No notifications saved on SD", SCREEN_W / 2, 86);
+            spr.drawString("No notifications saved on SD", SCREEN_W / 2, 86 - offY);
             spr.setTextColor(acc);
-            spr.drawString("Press ESC or [!] to close", SCREEN_W / 2, 102);
+            spr.drawString("Press ESC or [1/!] to close", SCREEN_W / 2, 102 - offY);
             spr.setTextDatum(TL_DATUM);
+            spr.clearClipRect();
             return;
         }
 
-        int y0 = 57;
+        int y0 = 57 - offY;
         for (int r = 0; r < 3; ++r) {
             int idx = m_notifScroll + r;
             if (idx >= (int)m_notifs.size()) break;
@@ -826,7 +883,7 @@ private:
             bool sel = (idx == m_notifSel);
 
             spr.fillRoundRect(9, y, SCREEN_W - 22, 19, 4, sel ? th.surface2 : th.bg);
-            spr.drawRoundRect(9, y, SCREEN_W - 22, 19, 4, sel ? acc : th.border);
+            spr.drawRoundRect(9, y, SCREEN_W - 22, 19, 4, th.border);
 
             uint16_t nc = notifColor(nr.app, th);
             spr.fillRoundRect(13, y + 4, 24, 11, 2, nc);
@@ -844,16 +901,18 @@ private:
             spr.setTextColor(sel ? th.text : th.textDim);
             spr.drawString(msg, 41, y + 6);
         }
+        spr.drawRoundRect(9, (int)roundf(m_notifSelAnimY) - offY, SCREEN_W - 22, 19, 4, acc);
         ui::drawScrollbar(spr, SCREEN_W - 10, y0, 62, (int)m_notifs.size(), 3, m_notifScroll);
         spr.setTextColor(th.textDim);
-        spr.drawString("[Ent]Read  [D]Dismiss  [C]Clear", 10, 122);
+        spr.drawString("[Ent]Read  [D]Dismiss  [C]Clear", 10, 122 - offY);
+        spr.clearClipRect();
     }
 
     static constexpr int kCtrlCount = 9;
 
     void handleCtrlInput(const InputEvent& ev) {
         if (isNavBack(ev) || (ev.code == CK_CHAR && (ev.ch == ']' || ev.ch == '\\'))) {
-            m_ctrlOpen = false;
+            m_ctrlClosing = true;
             return;
         }
         if (isNavUp(ev) && m_ctrlSel > 0) {
@@ -904,10 +963,14 @@ private:
                 break;
             case 6:
                 m_ctrlOpen = false;
+                m_ctrlClosing = false;
+                m_ctrlAnim = 0.0f;
                 setFlashlight(true);
                 break;
             case 7:
                 m_ctrlOpen = false;
+                m_ctrlClosing = false;
+                m_ctrlAnim = 0.0f;
                 enterScreensaver();
                 break;
             case 8: {
@@ -947,27 +1010,29 @@ private:
         static const char* CTRL_LABELS[kCtrlCount] = {
             "Brightness", "Media Vol", "Mode", "Wi-Fi", "Bluetooth", "ECO Mode", "Flashlight", "Screensaver", "Remount SD"
         };
+        int offY = (int)roundf((1.0f - ui::easeOutCubic(m_ctrlAnim)) * 96.0f);
 
-        spr.fillRoundRect(4, 39, SCREEN_W - 8, SCREEN_H - 42, 6, th.surface);
-        spr.drawRoundRect(4, 39, SCREEN_W - 8, SCREEN_H - 42, 6, acc);
+        spr.setClipRect(4, 39, SCREEN_W - 8, SCREEN_H - 42);
+        spr.fillRoundRect(4, 39 - offY, SCREEN_W - 8, SCREEN_H - 42, 6, th.surface);
+        spr.drawRoundRect(4, 39 - offY, SCREEN_W - 8, SCREEN_H - 42, 6, acc);
 
         spr.setTextSize(1);
         spr.setTextColor(acc);
-        spr.drawString("Quick Control Center", 10, 43);
+        spr.drawString("Controls", 10, 43 - offY);
         spr.setTextColor(th.textDim);
         spr.setTextDatum(TR_DATUM);
-        spr.drawString("[</>/Ent]Change [Esc]]Close", SCREEN_W - 10, 43);
+        spr.drawString("[</>]Adj [Esc]Close", SCREEN_W - 10, 43 - offY);
         spr.setTextDatum(TL_DATUM);
-        spr.drawFastHLine(8, 53, SCREEN_W - 16, th.border);
+        spr.drawFastHLine(8, 53 - offY, SCREEN_W - 16, th.border);
 
-        int y0 = 56;
+        int y0 = 56 - offY;
         for (int r = 0; r < 4; ++r) {
             int idx = m_ctrlScroll + r;
             if (idx >= kCtrlCount) break;
             int y = y0 + r * 19;
             bool sel = (idx == m_ctrlSel);
             spr.fillRoundRect(9, y, SCREEN_W - 22, 17, 4, sel ? th.surface2 : th.bg);
-            spr.drawRoundRect(9, y, SCREEN_W - 22, 17, 4, sel ? acc : th.border);
+            spr.drawRoundRect(9, y, SCREEN_W - 22, 17, 4, th.border);
             spr.setTextColor(sel ? th.text : th.textDim);
             spr.drawString(CTRL_LABELS[idx], 15, y + 5);
 
@@ -976,7 +1041,9 @@ private:
             spr.drawString(ctrlValueText(idx), SCREEN_W - 17, y + 5);
             spr.setTextDatum(TL_DATUM);
         }
+        spr.drawRoundRect(9, (int)roundf(m_ctrlSelAnimY) - offY, SCREEN_W - 22, 17, 4, acc);
         ui::drawScrollbar(spr, SCREEN_W - 10, y0, 74, kCtrlCount, 4, m_ctrlScroll);
+        spr.clearClipRect();
     }
 };
 

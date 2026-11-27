@@ -68,38 +68,42 @@ void switchApp(AppId id) {
     if (s_uiReady && !g_sys.screenAsleep && !g_sys.deepSleepMode && prev != id) {
         s_apps[id]->render(s_spr);
         uint16_t acc = activeAccent();
+        constexpr int kFrames = 6;
         if (prev == APP_HOME && id != APP_HOME) {
-            // Opening animation: 5-frame smooth center zoom-in
-            for (int f = 1; f <= 4; ++f) {
-                int w = (SCREEN_W * (f + 1)) / 5;
-                int h = (SCREEN_H * (f + 1)) / 5;
+            // Opening animation: snappy 6-frame eased center zoom-in
+            for (int f = 1; f < kFrames; ++f) {
+                float e = ui::easeOutCubic((float)f / (float)kFrames);
+                int w = max(48, (int)roundf(SCREEN_W * (0.30f + 0.70f * e)));
+                int h = max(32, (int)roundf(SCREEN_H * (0.30f + 0.70f * e)));
                 int x = (SCREEN_W - w) / 2;
                 int y = (SCREEN_H - h) / 2;
                 M5Cardputer.Display.setClipRect(x, y, w, h);
                 s_spr.pushSprite(0, 0);
                 M5Cardputer.Display.clearClipRect();
-                M5Cardputer.Display.drawRect(x, y, w, h, acc);
-                delay(14);
+                M5Cardputer.Display.drawRoundRect(x, y, w, h, 4, acc);
+                delay(10);
             }
         } else if (prev != APP_HOME && id == APP_HOME) {
-            // Closing animation: 4-frame clean top-down reveal back to Home
-            for (int f = 1; f <= 3; ++f) {
-                int h = (SCREEN_H * f) / 4;
+            // Closing animation: snappy 6-frame eased reveal back to Home
+            for (int f = 1; f < kFrames; ++f) {
+                float e = ui::easeOutCubic((float)f / (float)kFrames);
+                int h = max(8, (int)roundf(SCREEN_H * e));
                 M5Cardputer.Display.setClipRect(0, 0, SCREEN_W, h);
                 s_spr.pushSprite(0, 0);
                 M5Cardputer.Display.clearClipRect();
                 M5Cardputer.Display.drawFastHLine(0, h, SCREEN_W, acc);
-                delay(14);
+                delay(10);
             }
         } else {
-            // App-to-app switch: 4-frame horizontal slide-in
-            for (int f = 1; f <= 3; ++f) {
-                int x = SCREEN_W - (SCREEN_W * f) / 4;
+            // App-to-app switch: snappy 6-frame eased slide-in from right
+            for (int f = 1; f < kFrames; ++f) {
+                float e = ui::easeOutCubic((float)f / (float)kFrames);
+                int x = (int)roundf(SCREEN_W * (1.0f - e));
                 M5Cardputer.Display.setClipRect(x, 0, SCREEN_W - x, SCREEN_H);
                 s_spr.pushSprite(0, 0);
                 M5Cardputer.Display.clearClipRect();
                 M5Cardputer.Display.drawFastVLine(x, 0, SCREEN_H, acc);
-                delay(14);
+                delay(10);
             }
         }
         M5Cardputer.Display.clearClipRect();

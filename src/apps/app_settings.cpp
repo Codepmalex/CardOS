@@ -53,6 +53,9 @@ public:
         m_btNamePrompt = false;
         m_tzMapMode = false;
         m_notifAppMode = false;
+        m_subSlideX = 0.0f;
+        m_catAnimY = 20.0f + (m_catSel - m_catScroll) * 21.0f;
+        m_itemAnimY = 20.0f + (m_itemSel - m_itemScroll) * 21.0f;
     }
 
     void onExit() override {
@@ -76,16 +79,20 @@ public:
     }
 
     void onTick() override {
+        m_subSlideX = ui::smoothMove(m_subSlideX, 0.0f, 0.42f);
+        m_catAnimY = ui::smoothMove(m_catAnimY, 20.0f + (m_catSel - m_catScroll) * 21.0f, 0.48f);
+        m_itemAnimY = ui::smoothMove(m_itemAnimY, 20.0f + (m_itemSel - m_itemScroll) * 21.0f, 0.48f);
+
         if (!m_ddOpen) return;
         if (m_ddClosing) {
-            m_ddAnim -= 0.30f;
+            m_ddAnim -= 0.32f;
             if (m_ddAnim <= 0.0f) {
                 m_ddAnim = 0.0f;
                 m_ddOpen = false;
                 m_ddClosing = false;
             }
         } else if (m_ddAnim < 1.0f) {
-            m_ddAnim = min(1.0f, m_ddAnim + 0.26f);
+            m_ddAnim = min(1.0f, m_ddAnim + 0.30f);
         }
     }
 
@@ -136,6 +143,8 @@ public:
                 m_inCategory = true;
                 m_itemSel = 0;
                 m_itemScroll = 0;
+                m_itemAnimY = 20.0f;
+                m_subSlideX = 64.0f;
             }
             return;
         }
@@ -143,6 +152,8 @@ public:
         // Inside a category
         if (isNavBack(ev)) {
             m_inCategory = false;
+            m_subSlideX = -64.0f;
+            m_catAnimY = 20.0f + (m_catSel - m_catScroll) * 21.0f;
             return;
         }
         int cnt = itemCountForCat((SetCat)m_catSel);
@@ -282,48 +293,53 @@ public:
 
         if (!m_inCategory) {
             ui::drawStatusBar(spr, "Settings");
+            int ox = (int)roundf(m_subSlideX);
+            spr.setClipRect(0, 18, SCREEN_W - 6, 108);
             spr.setTextSize(1);
             for (int i = 0; i < 5; ++i) {
                 int idx = m_catScroll + i;
                 if (idx >= CAT_COUNT) break;
                 int y = 20 + i * 21;
                 bool sel = (idx == m_catSel);
-                spr.fillRoundRect(6, y, SCREEN_W - 16, 19, 4, sel ? th.surface2 : th.surface);
-                if (sel) spr.drawRoundRect(6, y, SCREEN_W - 16, 19, 4, acc);
-                int tx = 12;
+                spr.fillRoundRect(6 + ox, y, SCREEN_W - 16, 19, 4, sel ? th.surface2 : th.surface);
+                int tx = 12 + ox;
                 if (idx == CAT_WIFI) {
                     uint16_t wc = g_sys.wifiConnected ? th.ok : acc;
-                    spr.fillCircle(16, y + 13, 1, wc);
-                    spr.drawArc(16, y + 13, 4, 4, 225, 315, wc);
-                    spr.drawArc(16, y + 13, 7, 7, 225, 315, wc);
-                    tx = 27;
+                    spr.fillCircle(16 + ox, y + 13, 1, wc);
+                    spr.drawArc(16 + ox, y + 13, 4, 4, 225, 315, wc);
+                    spr.drawArc(16 + ox, y + 13, 7, 7, 225, 315, wc);
+                    tx = 27 + ox;
                 } else if (idx == CAT_BLUETOOTH) {
                     uint16_t bc = g_sys.btConnected ? th.ok : (g_sys.btEnabled ? acc : th.textDim);
-                    spr.drawFastVLine(16, y + 4, 10, bc);
-                    spr.drawLine(16, y + 4, 19, y + 6, bc);
-                    spr.drawLine(19, y + 6, 14, y + 10, bc);
-                    spr.drawLine(16, y + 13, 19, y + 11, bc);
-                    spr.drawLine(19, y + 11, 14, y + 7, bc);
-                    tx = 27;
+                    spr.drawFastVLine(16 + ox, y + 4, 10, bc);
+                    spr.drawLine(16 + ox, y + 4, 19 + ox, y + 6, bc);
+                    spr.drawLine(19 + ox, y + 6, 14 + ox, y + 10, bc);
+                    spr.drawLine(16 + ox, y + 13, 19 + ox, y + 11, bc);
+                    spr.drawLine(19 + ox, y + 11, 14 + ox, y + 7, bc);
+                    tx = 27 + ox;
                 }
                 spr.setTextColor(sel ? acc : th.text);
                 spr.drawString(CAT_NAMES[idx], tx, y + 6);
                 spr.setTextDatum(TR_DATUM);
                 if (idx == CAT_WIFI) {
                     spr.setTextColor(g_sys.wifiConnected ? th.ok : th.textDim);
-                    spr.drawString(g_sys.wifiConnected ? "ON >" : "OFF >", SCREEN_W - 14, y + 6);
+                    spr.drawString(g_sys.wifiConnected ? "ON >" : "OFF >", SCREEN_W - 14 + ox, y + 6);
                 } else if (idx == CAT_BLUETOOTH) {
                     spr.setTextColor(g_sys.btEnabled ? th.ok : th.textDim);
-                    spr.drawString(g_sys.btEnabled ? "ON >" : "OFF >", SCREEN_W - 14, y + 6);
+                    spr.drawString(g_sys.btEnabled ? "ON >" : "OFF >", SCREEN_W - 14 + ox, y + 6);
                 } else {
                     spr.setTextColor(th.textDim);
-                    spr.drawString(">", SCREEN_W - 14, y + 6);
+                    spr.drawString(">", SCREEN_W - 14 + ox, y + 6);
                 }
                 spr.setTextDatum(TL_DATUM);
             }
+            spr.drawRoundRect(6 + ox, (int)roundf(m_catAnimY), SCREEN_W - 16, 19, 4, acc);
+            spr.clearClipRect();
             ui::drawScrollbar(spr, SCREEN_W - 6, 20, 104, CAT_COUNT, 5, m_catScroll);
         } else {
             ui::drawStatusBar(spr, CAT_NAMES[m_catSel]);
+            int ox = (int)roundf(m_subSlideX);
+            spr.setClipRect(0, 18, SCREEN_W - 6, 108);
             int cnt = itemCountForCat((SetCat)m_catSel);
             spr.setTextSize(1);
             for (int i = 0; i < 5; ++i) {
@@ -331,18 +347,19 @@ public:
                 if (idx >= cnt) break;
                 int y = 20 + i * 21;
                 bool sel = (idx == m_itemSel);
-                spr.fillRoundRect(6, y, SCREEN_W - 16, 19, 3, sel ? th.surface2 : th.surface);
-                if (sel) spr.drawRoundRect(6, y, SCREEN_W - 16, 19, 3, acc);
+                spr.fillRoundRect(6 + ox, y, SCREEN_W - 16, 19, 3, sel ? th.surface2 : th.surface);
 
                 String lbl, val;
                 getItemText((SetCat)m_catSel, idx, lbl, val);
                 spr.setTextColor(th.text);
-                spr.drawString(lbl, 11, y + 6);
+                spr.drawString(lbl, 11 + ox, y + 6);
                 spr.setTextDatum(TR_DATUM);
                 spr.setTextColor(sel ? acc : th.textDim);
-                spr.drawString(val, SCREEN_W - 14, y + 6);
+                spr.drawString(val, SCREEN_W - 14 + ox, y + 6);
                 spr.setTextDatum(TL_DATUM);
             }
+            spr.drawRoundRect(6 + ox, (int)roundf(m_itemAnimY), SCREEN_W - 16, 19, 3, acc);
+            spr.clearClipRect();
             ui::drawScrollbar(spr, SCREEN_W - 6, 20, 104, cnt, 5, m_itemScroll);
             spr.setTextColor(th.textDim);
             spr.drawString("</> Adjust  [Enter] Menu  ESC Back", 6, 125);
@@ -355,6 +372,9 @@ private:
     bool m_inCategory = false;
     int m_catSel = 0, m_catScroll = 0;
     int m_itemSel = 0, m_itemScroll = 0;
+    float m_catAnimY = 20.0f;
+    float m_itemAnimY = 20.0f;
+    float m_subSlideX = 0.0f;
 
     bool m_wifiScanning = false;
     std::vector<WifiNetInfo> m_nets;

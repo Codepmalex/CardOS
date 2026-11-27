@@ -1,9 +1,21 @@
 #pragma once
 #include <Arduino.h>
 #include <M5Cardputer.h>
+#include <math.h>
 #include "config.h"
 
 namespace ui {
+
+inline float easeOutCubic(float t) {
+    t = constrain(t, 0.0f, 1.0f);
+    float u = 1.0f - t;
+    return 1.0f - u * u * u;
+}
+
+inline float smoothMove(float cur, float target, float k = 0.45f) {
+    float diff = target - cur;
+    return (fabsf(diff) < 0.6f) ? target : (cur + diff * k);
+}
 
 int drawStatusIcons(M5Canvas& spr, bool showTime = true);
 void drawStatusBar(M5Canvas& spr, const char* title, bool showTime = true);

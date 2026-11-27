@@ -35,7 +35,15 @@ public:
     AppId id() const override { return APP_TIMER; }
     const char* name() const override { return "Timer"; }
 
-    void onEnter() override {}
+    void onEnter() override {
+        int tw = (SCREEN_W - 16) / 3;
+        m_tabAnimX = 9.0f + m_tab * (float)tw;
+    }
+
+    void onTick() override {
+        int tw = (SCREEN_W - 16) / 3;
+        m_tabAnimX = ui::smoothMove(m_tabAnimX, 9.0f + m_tab * (float)tw, 0.45f);
+    }
 
     void onInput(const InputEvent& ev) override {
         if (isNavBack(ev)) { switchApp(APP_HOME); return; }
@@ -130,15 +138,19 @@ public:
         spr.fillScreen(th.bg);
         ui::drawStatusBar(spr, "Timer");
 
-        // Tabs (y: 18..31)
+        // Tabs (y: 18..31) with smoothly gliding accent pill
         static const char* TABS[3] = {"Stopwatch", "Countdown", "Pomodoro"};
         int tw = (SCREEN_W - 16) / 3;
         spr.setTextSize(1);
+        for (int i = 0; i < 3; ++i) {
+            int tx = 8 + i * tw;
+            spr.fillRoundRect(tx + 1, 18, tw - 2, 13, 3, th.surface);
+        }
+        spr.fillRoundRect((int)roundf(m_tabAnimX), 18, tw - 2, 13, 3, acc);
         spr.setTextDatum(MC_DATUM);
         for (int i = 0; i < 3; ++i) {
             int tx = 8 + i * tw;
             bool sel = (i == m_tab);
-            spr.fillRoundRect(tx + 1, 18, tw - 2, 13, 3, sel ? acc : th.surface);
             spr.setTextColor(sel ? th.bg : th.textDim);
             spr.drawString(TABS[i], tx + tw / 2, 24);
         }
@@ -248,6 +260,7 @@ public:
 
 private:
     int m_tab = 0;
+    float m_tabAnimX = 9.0f;
 };
 
 } // namespace

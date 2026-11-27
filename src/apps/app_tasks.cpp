@@ -27,6 +27,12 @@ public:
         m_newText = "";
         loadTasks();
         rebuildView();
+        m_selAnimY = 33.0f + (m_sel - m_scroll) * 22.0f;
+    }
+
+    void onTick() override {
+        float tgt = 33.0f + (m_sel - m_scroll) * 22.0f;
+        m_selAnimY = ui::smoothMove(m_selAnimY, tgt, 0.48f);
     }
 
     void onExit() override {
@@ -190,7 +196,7 @@ public:
                 bool sel = (vi == m_sel);
 
                 spr.fillRoundRect(6, y, SCREEN_W - 16, 20, 4, sel ? th.surface2 : th.surface);
-                spr.drawRoundRect(6, y, SCREEN_W - 16, 20, 4, sel ? acc : th.border);
+                spr.drawRoundRect(6, y, SCREEN_W - 16, 20, 4, th.border);
 
                 // Checkbox
                 spr.drawRect(11, y + 5, 10, 10, t.done ? th.ok : (t.prio ? th.err : th.textDim));
@@ -207,6 +213,8 @@ public:
                 spr.setTextColor(t.done ? th.textDim : (sel ? th.text : (t.prio ? th.warn : th.text)));
                 spr.drawString(txt, 26, y + 6);
             }
+            // Gliding selection highlight border
+            spr.drawRoundRect(6, (int)roundf(m_selAnimY), SCREEN_W - 16, 20, 4, acc);
             ui::drawScrollbar(spr, SCREEN_W - 6, y0, 86, (int)m_viewIdx.size(), 4, m_scroll);
         }
 
@@ -220,6 +228,7 @@ private:
     std::vector<int> m_viewIdx;
     int m_sel = 0;
     int m_scroll = 0;
+    float m_selAnimY = 33.0f;
     int m_filter = 0; // 0=All, 1=Todo, 2=Done
     bool m_adding = false;
     String m_newText;

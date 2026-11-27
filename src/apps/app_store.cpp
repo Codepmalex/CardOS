@@ -54,6 +54,20 @@ public:
         }
         refreshUpdateFlags();
         rebuildFiltered();
+        m_tabAnimX = 6.0f;
+        m_tabAnimW = 46.0f;
+        m_listAnimY = 45.0f;
+    }
+
+    void onTick() override {
+        static const float kTabX[3] = {6.0f, 56.0f, 120.0f};
+        static const float kTabW[3] = {46.0f, 60.0f, 48.0f};
+        m_tabAnimX = ui::smoothMove(m_tabAnimX, kTabX[m_tab], 0.45f);
+        m_tabAnimW = ui::smoothMove(m_tabAnimW, kTabW[m_tab], 0.45f);
+        float tgtY = (m_tab == 0) ? (45.0f + (m_storeSel - m_storeScroll) * 25.0f)
+                   : (m_tab == 1 ? (46.0f + (m_updSel - m_updScroll) * 25.0f)
+                                 : (35.0f + (m_binSel - m_binScroll) * 21.0f));
+        m_listAnimY = ui::smoothMove(m_listAnimY, tgtY, 0.48f);
     }
 
     void onExit() override {
@@ -114,24 +128,26 @@ public:
 
         ui::drawStatusBar(spr, "App Store");
 
-        // Top tabs (y: 18..31): Store | Updates / Upd(N) | Other
+        // Top tabs (y: 18..31) with gliding accent pill: Store | Updates / Upd(N) | Other
         spr.setTextSize(1);
         spr.setTextDatum(MC_DATUM);
-
-        spr.fillRoundRect(6, 18, 46, 13, 3, m_tab == 0 ? acc : th.surface);
-        spr.setTextColor(m_tab == 0 ? th.bg : th.textDim);
-        spr.drawString("Store", 29, 24);
 
         char updLbl[16];
         if (m_updates.empty()) snprintf(updLbl, sizeof(updLbl), "Updates");
         else                   snprintf(updLbl, sizeof(updLbl), "Upd(%d)", (int)m_updates.size());
-        uint16_t updBg = (m_tab == 1) ? acc : (m_updates.empty() ? th.surface : th.surface2);
+
+        spr.fillRoundRect(6, 18, 46, 13, 3, th.surface);
+        spr.fillRoundRect(56, 18, 60, 13, 3, m_updates.empty() ? th.surface : th.surface2);
+        spr.fillRoundRect(120, 18, 48, 13, 3, th.surface);
+        spr.fillRoundRect((int)roundf(m_tabAnimX), 18, (int)roundf(m_tabAnimW), 13, 3, acc);
+
+        spr.setTextColor(m_tab == 0 ? th.bg : th.textDim);
+        spr.drawString("Store", 29, 24);
+
         uint16_t updFg = (m_tab == 1) ? th.bg : (m_updates.empty() ? th.textDim : th.warn);
-        spr.fillRoundRect(56, 18, 60, 13, 3, updBg);
         spr.setTextColor(updFg);
         spr.drawString(updLbl, 86, 24);
 
-        spr.fillRoundRect(120, 18, 48, 13, 3, m_tab == 2 ? acc : th.surface);
         spr.setTextColor(m_tab == 2 ? th.bg : th.textDim);
         spr.drawString("Other", 144, 24);
 
@@ -181,6 +197,9 @@ private:
     int m_binScroll = 0;
 
     uint32_t m_animPhase = 0;
+    float m_tabAnimX = 6.0f;
+    float m_tabAnimW = 46.0f;
+    float m_listAnimY = 45.0f;
 
     void drawStoreProgress(const char* title, const char* stage, int pct) {
         M5Canvas* spr = getScreenCanvas();
@@ -721,7 +740,7 @@ private:
 
                 int y = 45 + row * 25;
                 spr.fillRoundRect(6, y, SCREEN_W - 16, 23, 4, sel ? th.surface2 : th.surface);
-                spr.drawRoundRect(6, y, SCREEN_W - 16, 23, 4, sel ? acc : th.border);
+                spr.drawRoundRect(6, y, SCREEN_W - 16, 23, 4, th.border);
 
                 spr.setTextColor(sel ? acc : th.text);
                 spr.drawString(it.name, 11, y + 3);
@@ -744,6 +763,7 @@ private:
                 }
                 spr.setTextDatum(TL_DATUM);
             }
+            spr.drawRoundRect(6, (int)roundf(m_listAnimY), SCREEN_W - 16, 23, 4, acc);
             ui::drawScrollbar(spr, SCREEN_W - 6, 45, 74, (int)m_filtered.size(), 3, m_storeScroll);
         }
         spr.setTextColor(th.textDim);
@@ -797,7 +817,7 @@ private:
 
             int y = 46 + row * 25;
             spr.fillRoundRect(6, y, SCREEN_W - 16, 23, 4, sel ? th.surface2 : th.surface);
-            spr.drawRoundRect(6, y, SCREEN_W - 16, 23, 4, sel ? acc : th.border);
+            spr.drawRoundRect(6, y, SCREEN_W - 16, 23, 4, th.border);
 
             spr.setTextColor(sel ? acc : th.text);
             spr.drawString(it.name, 11, y + 3);
@@ -811,6 +831,7 @@ private:
             spr.drawString("[UPDATE]", SCREEN_W - 14, y + 3);
             spr.setTextDatum(TL_DATUM);
         }
+        spr.drawRoundRect(6, (int)roundf(m_listAnimY), SCREEN_W - 16, 23, 4, acc);
         ui::drawScrollbar(spr, SCREEN_W - 6, 46, 74, (int)m_updates.size(), 3, m_updScroll);
 
         spr.setTextColor(th.textDim);
@@ -841,7 +862,7 @@ private:
             bool pinned = isBinPinned(b.path);
 
             spr.fillRoundRect(6, y, SCREEN_W - 16, 19, 4, sel ? th.surface2 : th.surface);
-            spr.drawRoundRect(6, y, SCREEN_W - 16, 19, 4, sel ? acc : th.border);
+            spr.drawRoundRect(6, y, SCREEN_W - 16, 19, 4, th.border);
 
             spr.setTextColor(sel ? acc : th.text);
             String nm = String(pinned ? "* " : "") + b.name;
@@ -853,6 +874,7 @@ private:
             spr.drawString(installed ? "READY" : formatBytes(b.size), SCREEN_W - 14, y + 5);
             spr.setTextDatum(TL_DATUM);
         }
+        spr.drawRoundRect(6, (int)roundf(m_listAnimY), SCREEN_W - 16, 19, 4, acc);
         ui::drawScrollbar(spr, SCREEN_W - 6, 35, 82, (int)m_bins.size(), 4, m_binScroll);
 
         spr.setTextColor(th.textDim);

@@ -24,7 +24,15 @@ public:
         if (m_cwd.isEmpty()) { m_cwd = "/"; resetPos = true; }
         m_creatingDir = false;
         m_confirmDel = false;
+        m_dirSlideX = 0.0f;
         loadDir(resetPos);
+        m_selAnimY = 20.0f + (m_sel - m_scroll) * 19.0f;
+    }
+
+    void onTick() override {
+        float tgtY = 20.0f + (m_sel - m_scroll) * 19.0f;
+        m_selAnimY = ui::smoothMove(m_selAnimY, tgtY, 0.48f);
+        m_dirSlideX = ui::smoothMove(m_dirSlideX, 0.0f, 0.42f);
     }
 
     void onExit() override {
@@ -130,6 +138,8 @@ public:
             spr.setTextColor(th.textDim);
             spr.drawString("(Empty folder)", 12, 52);
         } else {
+            int ox = (int)roundf(m_dirSlideX);
+            spr.setClipRect(0, 18, SCREEN_W - 6, 98);
             for (int i = 0; i < 5; ++i) {
                 int idx = m_scroll + i;
                 if (idx >= (int)m_entries.size()) break;
@@ -137,22 +147,23 @@ public:
                 bool sel = (idx == m_sel);
                 const auto& e = m_entries[idx];
 
-                spr.fillRoundRect(6, y, SCREEN_W - 16, 17, 3, sel ? th.surface2 : th.surface);
-                if (sel) spr.drawRoundRect(6, y, SCREEN_W - 16, 17, 3, acc);
+                spr.fillRoundRect(6 + ox, y, SCREEN_W - 16, 17, 3, sel ? th.surface2 : th.surface);
 
                 spr.setTextColor(e.isDir ? th.warn : (sel ? acc : th.text));
                 String prefix = e.isDir ? "[D] " : "    ";
                 String nm = prefix + e.name;
                 if ((int)nm.length() > 24) nm = nm.substring(0, 23) + "~";
-                spr.drawString(nm, 10, y + 5);
+                spr.drawString(nm, 10 + ox, y + 5);
 
                 if (!e.isDir) {
                     spr.setTextColor(th.textDim);
                     spr.setTextDatum(TR_DATUM);
-                    spr.drawString(formatBytes(e.size), SCREEN_W - 14, y + 5);
+                    spr.drawString(formatBytes(e.size), SCREEN_W - 14 + ox, y + 5);
                     spr.setTextDatum(TL_DATUM);
                 }
             }
+            spr.drawRoundRect(6 + ox, (int)roundf(m_selAnimY), SCREEN_W - 16, 17, 3, acc);
+            spr.clearClipRect();
             ui::drawScrollbar(spr, SCREEN_W - 6, 20, 95, (int)m_entries.size(), 5, m_scroll);
         }
 
@@ -199,6 +210,8 @@ private:
     std::vector<FileEntry> m_entries;
     int m_sel = 0;
     int m_scroll = 0;
+    float m_selAnimY = 20.0f;
+    float m_dirSlideX = 0.0f;
     bool m_creatingDir = false;
     String m_newDirName;
     bool m_confirmDel = false;
@@ -229,6 +242,8 @@ private:
     void goUp() {
         int sl = m_cwd.lastIndexOf('/');
         m_cwd = (sl > 0) ? m_cwd.substring(0, sl) : "/";
+        m_dirSlideX = -48.0f;
+        m_selAnimY = 20.0f;
         loadDir();
     }
 
@@ -240,6 +255,8 @@ private:
         }
         if (e.isDir) {
             m_cwd = e.path;
+            m_dirSlideX = 48.0f;
+            m_selAnimY = 20.0f;
             loadDir();
             return;
         }
