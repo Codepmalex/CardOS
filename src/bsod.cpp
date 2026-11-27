@@ -106,5 +106,6 @@ void bsodCheckOnBoot(M5Canvas& spr) {
     }
 
     showBsodScreen(spr, stopCode, detail, true);
+    bsodRecordHeartbeat("Boot: Recovered");
 }
 

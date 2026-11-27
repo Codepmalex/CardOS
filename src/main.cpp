@@ -1,5 +1,6 @@
 #include <M5Cardputer.h>
 #include <SD.h>
+#include <esp_task_wdt.h>
 #include "config.h"
 #include "state.h"
 #include "input.h"
@@ -18,6 +19,8 @@
 static M5Canvas s_spr(&M5Cardputer.Display);
 static App* s_apps[APP_COUNT] = {nullptr};
 static bool s_uiReady = false;
+static bool s_btBootPending = false;
+static uint32_t s_bootReadyMs = 0;
 static volatile bool s_bootAnimStop = false;
 static volatile bool s_bootAnimDone = false;
 
@@ -25,7 +28,7 @@ static void bootAnimTask(void* param) {
     (void)param;
     uint32_t startMs = millis();
     uint32_t frame = 0;
-    while (!s_bootAnimStop || (millis() - startMs < 750)) {
+    while ((!s_bootAnimStop || (millis() - startMs < 750)) && (millis() - startMs < 8000)) {
         ui::drawBootLoadingFrame(s_spr, frame++);
         s_spr.pushSprite(0, 0);
         delay(45);
@@ -174,6 +177,7 @@ bool installAndBootBinInteractive(const String& path, const String& displayName)
 
 void setup() {
     initState();
+    esp_task_wdt_init(15, true);
 
     // Clear any leftover USB MSC boot flag so boots always land on CardOS
     if (getMscBootFlag()) {
@@ -193,31 +197,45 @@ void setup() {
     bsodCheckOnBoot(s_spr);
 
     // Show animated loading screen immediately (no progress bar) while init runs
+    bsodRecordHeartbeat("Boot: Init");
     s_bootAnimStop = false;
     s_bootAnimDone = false;
     xTaskCreatePinnedToCore(bootAnimTask, "boot_anim", 4096, nullptr, 1, nullptr, 0);
 
     g_sys.imuReady = M5.Imu.isEnabled();
 
+    bsodRecordHeartbeat("Boot: Storage");
     initInput();
     initStorage();
+    yield();
+
+    bsodRecordHeartbeat("Boot: Settings");
     syncSettingsWithStorage();
     loadHomeLayout();
     loadWeatherAndTimeCache();
+    yield();
 
     s_bootAnimStop = true;
-    while (!s_bootAnimDone) {
+    uint32_t animWaitStart = millis();
+    while (!s_bootAnimDone && millis() - animWaitStart < 2500) {
         delay(10);
     }
+    bsodRecordHeartbeat("Boot: OTA Check");
     checkAndApplyPendingOsUpdate();
 
+    bsodRecordHeartbeat("Boot: Hardware");
     M5Cardputer.Display.setRotation(g_settings.flipScreen ? 2 : 0);
     initHardware();
-    if (g_settings.btEnabled) btSetEnabled(true);
+    s_btBootPending = g_settings.btEnabled;
     initIrTx();
     applyTimezoneConfig();
-    initNetWeather();
+    yield();
 
+    bsodRecordHeartbeat("Boot: NetWeather");
+    initNetWeather();
+    yield();
+
+    bsodRecordHeartbeat("Boot: Apps");
     s_apps[APP_HOME]      = createHomeApp();
     s_apps[APP_NOTES]     = createNotesApp();
     s_apps[APP_CALENDAR]  = createCalendarApp();
@@ -247,12 +265,21 @@ void setup() {
     s_apps[APP_NOTES]->onEnter();
     s_apps[APP_NOTES]->onExit();
 
+    bsodRecordHeartbeat("Boot: Home");
     s_uiReady = true;
+    s_bootReadyMs = millis();
     switchApp(APP_HOME);
     Serial.println("CARDOS_READY");
 }
 
 void loop() {
+    if (s_btBootPending && millis() - s_bootReadyMs >= 1500) {
+        s_btBootPending = false;
+        if (g_settings.btEnabled && !btIsEnabled()) {
+            bsodRecordHeartbeat("Boot: Bluetooth");
+            btSetEnabled(true);
+        }
+    }
     static bool s_prevWakeKeyDown = false;
     static uint32_t s_lastSleepChargeMs = 0;
     if (g_sys.deepSleepMode) {
