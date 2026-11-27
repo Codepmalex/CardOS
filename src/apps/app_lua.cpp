@@ -233,12 +233,135 @@ static int l_writeFile(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
     size_t len = 0;
     const char* data = luaL_checklstring(L, 2, &len);
-    String txt;
-    txt.reserve(len + 1);
-    for (size_t i = 0; i < len; ++i) txt += data[i];
-    bool ok = writeTextFile(path, txt);
+    if (!g_sys.sdMounted && !g_sys.spiffsMounted) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    fs::FS& fs = activeFS();
+    File f = fs.open(path, FILE_WRITE);
+    if (!f) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    size_t written = len ? f.write((const uint8_t*)data, len) : 0;
+    f.close();
+    invalidateReadLineCache();
+    lua_pushboolean(L, (written == len) ? 1 : 0);
+    return 1;
+}
+
+static int l_appendLine(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    size_t len = 0;
+    const char* line = luaL_checklstring(L, 2, &len);
+    if (!g_sys.sdMounted && !g_sys.spiffsMounted) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    fs::FS& fs = activeFS();
+    File f = fs.open(path, fs.exists(path) ? FILE_APPEND : FILE_WRITE);
+    if (!f) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    bool ok = true;
+    if (len > 0 && f.write((const uint8_t*)line, len) != len) ok = false;
+    if (f.write((const uint8_t*)"\n", 1) != 1) ok = false;
+    f.close();
     invalidateReadLineCache();
     lua_pushboolean(L, ok ? 1 : 0);
+    return 1;
+}
+
+static bool rewriteLineOnSd(const char* path, int targetIdx, const char* replacement, size_t replLen) {
+    if (targetIdx < 1 || (!g_sys.sdMounted && !g_sys.spiffsMounted)) return false;
+    fs::FS& fs = activeFS();
+    if (!fs.exists(path)) return false;
+
+    String tmpPath = String(path) + ".tmp";
+    fs.remove(tmpPath.c_str());
+
+    File in = fs.open(path, FILE_READ);
+    File out = fs.open(tmpPath.c_str(), FILE_WRITE);
+    if (!in || !out) {
+        if (in) in.close();
+        if (out) out.close();
+        fs.remove(tmpPath.c_str());
+        return false;
+    }
+
+    // Stream lines 1..N without loading full file into RAM; flush buffer in small slices
+    char lineBuf[384];
+    size_t lineLen = 0;
+    uint8_t buf[128];
+    int cur = 0;
+    bool ok = true;
+
+    auto emitLine = [&]() {
+        if (lineLen == 0) return;
+        cur++;
+        if (cur == targetIdx) {
+            if (replacement) {
+                if (replLen > 0 && out.write((const uint8_t*)replacement, replLen) != replLen) ok = false;
+                if (out.write((const uint8_t*)"\n", 1) != 1) ok = false;
+            }
+        } else {
+            if (out.write((const uint8_t*)lineBuf, lineLen) != lineLen) ok = false;
+            if (out.write((const uint8_t*)"\n", 1) != 1) ok = false;
+        }
+        lineLen = 0;
+        if ((cur & 15) == 0) yield();
+    };
+
+    while (in.available() && ok) {
+        int n = in.read(buf, sizeof(buf));
+        if (n <= 0) break;
+        for (int i = 0; i < n; ++i) {
+            char c = (char)buf[i];
+            if (c == '\r') continue;
+            if (c == '\n') {
+                emitLine();
+            } else {
+                if (lineLen + 1 < sizeof(lineBuf)) {
+                    lineBuf[lineLen++] = c;
+                } else {
+                    // Flush oversized prefix if encountered so existing line isn't truncated
+                    if (cur + 1 != targetIdx) {
+                        out.write((const uint8_t*)lineBuf, lineLen);
+                    }
+                    lineLen = 0;
+                }
+            }
+        }
+    }
+    if (ok && lineLen > 0) emitLine();
+
+    in.close();
+    out.close();
+
+    if (!ok) {
+        fs.remove(tmpPath.c_str());
+        return false;
+    }
+    fs.remove(path);
+    ok = fs.rename(tmpPath.c_str(), path);
+    invalidateReadLineCache();
+    return ok;
+}
+
+static int l_replaceLine(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    int idx = (int)luaL_checkinteger(L, 2);
+    size_t len = 0;
+    const char* rep = luaL_checklstring(L, 3, &len);
+    lua_pushboolean(L, rewriteLineOnSd(path, idx, rep, len) ? 1 : 0);
+    return 1;
+}
+
+static int l_deleteLine(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    int idx = (int)luaL_checkinteger(L, 2);
+    lua_pushboolean(L, rewriteLineOnSd(path, idx, nullptr, 0) ? 1 : 0);
     return 1;
 }
 
@@ -402,6 +525,9 @@ static const luaL_Reg CARDOS_LUA_FUNCS[] = {
     {"irSend",     l_irSend},
     {"readFile",   l_readFile},
     {"writeFile",  l_writeFile},
+    {"appendLine", l_appendLine},
+    {"replaceLine",l_replaceLine},
+    {"deleteLine", l_deleteLine},
     {"fileExists", l_fileExists},
     {"countLines", l_countLines},
     {"readLine",   l_readLine},
@@ -488,6 +614,7 @@ public:
         lua_gc(m_L, LUA_GCCOLLECT, 0);
 
         callLuaHook("onEnter");
+        if (m_L) lua_gc(m_L, LUA_GCCOLLECT, 0);
         if (s_exitRequested) {
             s_exitRequested = false;
             switchApp(APP_HOME);

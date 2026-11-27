@@ -397,13 +397,24 @@ bool flashOtaBinToApp0(fs::FS& fs, const esp_partition_t* app0, const char* moda
         return false;
     }
 
-    static uint8_t buf[4096];
+    size_t bufSz = 4096;
+    uint8_t* buf = (uint8_t*)malloc(bufSz);
+    if (!buf) {
+        bufSz = 2048;
+        buf = (uint8_t*)malloc(bufSz);
+    }
+    if (!buf) {
+        f.close();
+        fs.remove(kOtaBinPath);
+        esp_ota_set_boot_partition(app0);
+        return false;
+    }
     uint32_t offset = 0;
     uint32_t lastUi = 0;
     bool ok = true;
     while (offset < total) {
         size_t chunk = total - offset;
-        if (chunk > sizeof(buf)) chunk = sizeof(buf);
+        if (chunk > bufSz) chunk = bufSz;
         int got = f.read(buf, chunk);
         if (got <= 0) { ok = false; break; }
         if (esp_partition_write(app0, offset, buf, (size_t)got) != ESP_OK) { ok = false; break; }
@@ -413,6 +424,7 @@ bool flashOtaBinToApp0(fs::FS& fs, const esp_partition_t* app0, const char* moda
             drawOtaModal(modalTitle, "Flashing CardOS...", offset, total);
         }
     }
+    free(buf);
     f.close();
     fs.remove(kOtaBinPath);
     esp_ota_set_boot_partition(app0);
@@ -635,7 +647,17 @@ bool runGithubOsUpdateInteractive() {
 
     int contentLen = dlHttp.getSize();
     WiFiClient* stream = dlHttp.getStreamPtr();
-    static uint8_t dlBuf[2048];
+    static constexpr size_t kDlBufSz = 2048;
+    uint8_t* dlBuf = (uint8_t*)malloc(kDlBufSz);
+    if (!dlBuf) {
+        dlHttp.end();
+        if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
+        out.close();
+        SD.remove(kOtaBinPath);
+        drawOtaModal("Software Update", "Out of RAM", 0, 0);
+        delay(1700);
+        return false;
+    }
     uint32_t downloaded = 0;
     uint32_t lastUi = 0;
     uint32_t lastDataMs = millis();
@@ -643,7 +665,7 @@ bool runGithubOsUpdateInteractive() {
     while ((dlHttp.connected() || stream->available() > 0) && (contentLen <= 0 || (int)downloaded < contentLen)) {
         size_t avail = stream->available();
         if (avail > 0) {
-            if (avail > sizeof(dlBuf)) avail = sizeof(dlBuf);
+            if (avail > kDlBufSz) avail = kDlBufSz;
             int rd = stream->readBytes(dlBuf, avail);
             if (rd > 0) {
                 if (downloaded == 0) firstByte = dlBuf[0];
@@ -666,6 +688,7 @@ bool runGithubOsUpdateInteractive() {
     out.close();
 
     if (downloaded < 200000 || firstByte != 0xE9 || (contentLen > 0 && downloaded < (uint32_t)contentLen)) {
+        free(dlBuf);
         SD.remove(kOtaBinPath);
         char errBuf[44];
         snprintf(errBuf, sizeof(errBuf), "Bad bin:%u/%dKB m=%02X",
@@ -684,6 +707,7 @@ bool runGithubOsUpdateInteractive() {
     if (!app1) app1 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, nullptr);
 
     if (running && app1 && running->address == app1->address) {
+        free(dlBuf);
         if (!app0 || downloaded > app0->size) {
             SD.remove(kOtaBinPath);
             drawOtaModal("Software Update", "App0 slot unavailable", 0, 0);
@@ -697,6 +721,7 @@ bool runGithubOsUpdateInteractive() {
     }
 
     if (!app1 || downloaded > app1->size) {
+        free(dlBuf);
         SD.remove(kOtaBinPath);
         drawOtaModal("Software Update", "App1 slot unavailable", 0, 0);
         delay(1800);
@@ -705,6 +730,7 @@ bool runGithubOsUpdateInteractive() {
 
     File in = SD.open(kOtaBinPath, FILE_READ);
     if (!in) {
+        free(dlBuf);
         SD.remove(kOtaBinPath);
         return false;
     }
@@ -713,6 +739,7 @@ bool runGithubOsUpdateInteractive() {
     drawOtaModal("CardOS Updater 1/2", "Staging to App1...", 0, downloaded);
     esp_err_t otaErr = esp_ota_begin(app1, downloaded, &otaHandle);
     if (otaErr != ESP_OK) {
+        free(dlBuf);
         in.close();
         SD.remove(kOtaBinPath);
         char errBuf[36];
@@ -727,7 +754,7 @@ bool runGithubOsUpdateInteractive() {
     bool writeOk = true;
     while (written < downloaded) {
         size_t chunk = downloaded - written;
-        if (chunk > sizeof(dlBuf)) chunk = sizeof(dlBuf);
+        if (chunk > kDlBufSz) chunk = kDlBufSz;
         int rd = in.read(dlBuf, chunk);
         if (rd <= 0) { writeOk = false; break; }
         if (esp_ota_write(otaHandle, dlBuf, (size_t)rd) != ESP_OK) { writeOk = false; break; }
@@ -737,6 +764,7 @@ bool runGithubOsUpdateInteractive() {
             drawOtaModal("CardOS Updater 1/2", "Staging to App1...", written, downloaded);
         }
     }
+    free(dlBuf);
     in.close();
 
     esp_err_t endErr = writeOk ? esp_ota_end(otaHandle) : ESP_FAIL;

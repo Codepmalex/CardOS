@@ -232,6 +232,7 @@ struct SystemState {
     bool lowBattNotified = false;
     bool weatherNotified = false;
     bool rainNotified = false;
+    uint8_t unreadNotifCount = 0;
     char latestOsVer[16] = "";
     int pendingAppUpdates = 0;
 

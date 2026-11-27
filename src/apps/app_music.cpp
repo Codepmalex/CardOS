@@ -789,6 +789,9 @@ void tickMusicPlayer() {
 void stopMusicPlayback() {
     cleanupDecoder();
     stopPhoneServer();
+    std::vector<MusicTrack>().swap(s_tracks);
+    std::vector<MusicPlaylist>().swap(s_playlists);
+    s_scanned = false;
     updateMusicLiveState("", "", false, false, false);
 }
 

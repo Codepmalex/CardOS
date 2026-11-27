@@ -15,9 +15,18 @@ namespace {
 static constexpr uint32_t kRecRate = 16000;
 static constexpr size_t   kChunkSamples = 512;
 
-static int16_t s_micBuf[2][kChunkSamples];
+static int16_t* s_micBuf[2] = {nullptr, nullptr};
 static volatile int s_doneBufIdx = -1;
 static int s_nextQueueIdx = 0;
+
+static void freeMicBuffers() {
+    for (int i = 0; i < 2; ++i) {
+        if (s_micBuf[i]) {
+            free(s_micBuf[i]);
+            s_micBuf[i] = nullptr;
+        }
+    }
+}
 
 static void onMicBufferDone(void* args, void* data, size_t len) {
     (void)args;
@@ -65,13 +74,14 @@ public:
     void onExit() override {
         stopRecording();
         stopPlayback();
+        freeMicBuffers();
         std::vector<FileEntry>().swap(m_files);
     }
 
     void onTick() override {
         if (m_recording) {
             int done = s_doneBufIdx;
-            if (done >= 0) {
+            if (done >= 0 && done < 2 && s_micBuf[done]) {
                 s_doneBufIdx = -1;
                 // Measure peak & apply manual sensitivity or Auto AGC gain cleanly
                 int32_t peak = 1;
@@ -337,6 +347,18 @@ private:
         m_recStartMs = millis();
         m_agcGain = 1.5f;
 
+        freeMicBuffers();
+        s_micBuf[0] = (int16_t*)calloc(kChunkSamples, sizeof(int16_t));
+        s_micBuf[1] = (int16_t*)calloc(kChunkSamples, sizeof(int16_t));
+        if (!s_micBuf[0] || !s_micBuf[1]) {
+            freeMicBuffers();
+            m_recFile.close();
+            SD.remove(path.c_str());
+            M5Cardputer.Speaker.begin();
+            showToast("Out of RAM", 1500);
+            return;
+        }
+
         auto cfg = M5Cardputer.Mic.config();
         cfg.sample_rate = kRecRate;
         M5Cardputer.Mic.config(cfg);
@@ -344,6 +366,7 @@ private:
         s_nextQueueIdx = 0;
         M5Cardputer.Mic.setBufferReleaseCallback(nullptr, onMicBufferDone);
         if (!M5Cardputer.Mic.begin()) {
+            freeMicBuffers();
             m_recFile.close();
             SD.remove(path.c_str());
             M5Cardputer.Speaker.begin();
@@ -356,10 +379,14 @@ private:
     }
 
     void stopRecording() {
-        if (!m_recording) return;
+        if (!m_recording) {
+            freeMicBuffers();
+            return;
+        }
         m_recording = false;
         M5Cardputer.Mic.end();
         M5Cardputer.Mic.setBufferReleaseCallback(nullptr, nullptr);
+        freeMicBuffers();
         if (m_recFile) {
             writeWavHeader(m_recFile, m_recBytes, kRecRate);
             m_recFile.close();

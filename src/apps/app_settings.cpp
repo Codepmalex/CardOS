@@ -55,6 +55,18 @@ public:
         m_notifAppMode = false;
     }
 
+    void onExit() override {
+        std::vector<WifiNetInfo>().swap(m_nets);
+        std::vector<BtPeerInfo>().swap(m_btPeers);
+        std::vector<String>().swap(m_ddOptions);
+        std::vector<int>().swap(m_ddValues);
+        m_ddTitle = String();
+        m_pendingSsid = String();
+        m_pendingPass = String();
+        m_pendingCity = String();
+        m_pendingBtName = String();
+    }
+
     void enterTimezoneMap() {
         m_inCategory = true;
         m_catSel = CAT_TIME_WEATHER;

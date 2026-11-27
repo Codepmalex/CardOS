@@ -3,7 +3,7 @@ local dbN, md = 0, "SAVED"
 local sv, sSel, sScr = {}, 1, 1
 local br, bSel, bScr, idxB, idxT = {}, 1, 1, {}, {}
 local cnd, bIdx, bAuto, bStep, bMute, lastB = {}, 1, true, false, false, 0
-local bDev, cDev, act = nil, nil, 0
+local bDev, cDev, remDev, act = nil, nil, nil, 0
 local rnTxt, rnIdx, flMs, cmdLbl = "", 0, 0, ""
 
 local function tr(s) return (s:gsub("^%s*(.-)%s*$", "%1")) end
@@ -30,40 +30,67 @@ local function parseP(s)
   }
 end
 
+local function parseSvRow(s)
+  if not s or s == "" then return nil end
+  local f = spl(s)
+  if #f < 6 or f[1] == "" then return nil end
+  return {
+    name=f[1], b=f[2] or "", m=f[3] or "", t=f[4] or "TV", p=f[5] or "NEC", bits=tonumber(f[6]) or 32,
+    pwr=f[7] or "", vu=f[8] or "", vd=f[9] or "", mt=f[10] or "",
+    cu=f[11] or "", cd=f[12] or "", in_=f[13] or "", mn=f[14] or "",
+    ok=f[15] or "", up=f[16] or "", dn=f[17] or "", lt=f[18] or "", rt=f[19] or "", bk=f[20] or ""
+  }
+end
+
+local function fmtSvLine(d)
+  local nm = (d.name or "TV"):gsub("[|\r\n]", " ")
+  return table.concat({
+    nm, d.b, d.m, d.t, d.p, tostring(d.bits or 32),
+    d.pwr, d.vu, d.vd, d.mt, d.cu, d.cd, d.in_, d.mn,
+    d.ok, d.up, d.dn, d.lt, d.rt, d.bk
+  }, "|")
+end
+
 local function brandType(s)
   if not s then return "", "TV" end
   local b, _, t = s:match("^([^|]+)|([^|]+)|([^|]+)|")
   return b or "", t or "TV"
 end
 
+-- Keep only tiny summary fields in RAM; read full IR codes line-by-line from SD on demand
 local function loadSv()
   sv = {}
-  local raw = cardos.readFile(SV)
-  if not raw or raw == "" then return end
-  for ln in raw:gmatch("[^\r\n]+") do
-    local f = spl(ln)
-    if #f >= 6 and f[1] ~= "" then
-      table.insert(sv, {
-        name=f[1], b=f[2] or "", m=f[3] or "", t=f[4] or "TV", p=f[5] or "NEC", bits=tonumber(f[6]) or 32,
-        pwr=f[7] or "", vu=f[8] or "", vd=f[9] or "", mt=f[10] or "",
-        cu=f[11] or "", cd=f[12] or "", in_=f[13] or "", mn=f[14] or "",
-        ok=f[15] or "", up=f[16] or "", dn=f[17] or "", lt=f[18] or "", rt=f[19] or "", bk=f[20] or ""
-      })
+  local n = cardos.countLines(SV)
+  for i = 1, n do
+    local ln = cardos.readLine(SV, i)
+    if ln then
+      local nm, b, _, t, p = ln:match("^([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)")
+      if nm and nm ~= "" then
+        table.insert(sv, {name=nm, b=b or "", t=(t ~= "" and t) or "TV", p=(p ~= "" and p) or "NEC"})
+      end
     end
   end
+  collectgarbage("collect")
 end
 
-local function saveSv()
-  local out = {}
-  for _, d in ipairs(sv) do
-    local nm = (d.name or "TV"):gsub("[|\r\n]", " ")
-    table.insert(out, table.concat({
-      nm, d.b, d.m, d.t, d.p, tostring(d.bits or 32),
-      d.pwr, d.vu, d.vd, d.mt, d.cu, d.cd, d.in_, d.mn,
-      d.ok, d.up, d.dn, d.lt, d.rt, d.bk
-    }, "|"))
+local function loadDev(idx)
+  return parseSvRow(cardos.readLine(SV, idx))
+end
+
+local function freeBr()
+  br, cnd, idxB, idxT, bDev = {}, {}, {}, {}, nil
+  collectgarbage("collect")
+end
+
+local function appendSv(d)
+  local ln = fmtSvLine(d)
+  if cardos.appendLine then
+    cardos.appendLine(SV, ln)
+  else
+    local old = cardos.readFile(SV) or ""
+    if old ~= "" and old:sub(-1) ~= "\n" then old = old .. "\n" end
+    cardos.writeFile(SV, old .. ln .. "\n")
   end
-  cardos.writeFile(SV, table.concat(out, "\n") .. "\n")
 end
 
 local function uniqName(base)
@@ -140,22 +167,33 @@ local function btn(x, y, w, h, lbl, bg, fg)
 end
 
 local function kSaved(k, c, cl)
-  if isBk(k, c) then cardos.exit(); return end
+  if isBk(k, c) then remDev = nil; freeBr(); cardos.exit(); return end
   if isUp(k, c) and sSel > 1 then sSel = sSel - 1; if sSel < sScr then sScr = sSel end
   elseif isDn(k, c) and sSel < #sv then sSel = sSel + 1; if sSel >= sScr + 3 then sScr = sSel - 2 end
   elseif cl == "a" then if buildBr() then md = "PICK" end
-  elseif k == "enter" then if #sv == 0 then if buildBr() then md = "PICK" end else act = sSel; md = "REMOTE" end
+  elseif k == "enter" then
+    if #sv == 0 then
+      if buildBr() then md = "PICK" end
+    else
+      remDev = loadDev(sSel)
+      if remDev then act = sSel; md = "REMOTE" else cardos.toast("SD read err", 1000) end
+    end
   elseif cl == "r" and #sv > 0 then rnIdx, rnTxt, md = sSel, sv[sSel].name, "RENAME"
   elseif (k == "del" or cl == "d") and #sv > 0 then
-    local rm = sv[sSel].name; table.remove(sv, sSel)
+    local rm = sv[sSel].name
+    if cardos.deleteLine then cardos.deleteLine(SV, sSel) end
+    table.remove(sv, sSel)
     if sSel > #sv then sSel = math.max(1, #sv) end
     if sScr > math.max(1, #sv - 2) then sScr = math.max(1, #sv - 2) end
-    saveSv(); cardos.toast("Removed " .. rm, 1100)
-  elseif cl == "p" and #sv > 0 then sendIr(sv[sSel], sv[sSel].pwr, "PWR") end
+    collectgarbage("collect")
+    cardos.toast("Removed " .. rm, 1100)
+  elseif cl == "p" and #sv > 0 then
+    local d = loadDev(sSel); if d then sendIr(d, d.pwr, "PWR") end
+  end
 end
 
 local function kPick(k, c)
-  if isBk(k, c) then md = "SAVED"; return end
+  if isBk(k, c) then freeBr(); md = "SAVED"; return end
   if isUp(k, c) and bSel > 1 then bSel = bSel - 1; if bSel < bScr then bScr = bSel end
   elseif isDn(k, c) and bSel < #br then bSel = bSel + 1; if bSel >= bScr + 4 then bScr = bSel - 3 end
   elseif k == "enter" and #br > 0 then
@@ -172,13 +210,14 @@ local function kPick(k, c)
 end
 
 local function kBrute(k, c, cl)
-  if isBk(k, c) then bAuto = false; md = "PICK"; return end
+  if isBk(k, c) then bAuto = false; bDev = nil; collectgarbage("collect"); md = "PICK"; return end
   if #cnd == 0 then return end
   if cl == "m" then bStep = not bStep; bAuto = not bStep; lastB = cardos.millis(); return end
   if cl == "t" then bMute = not bMute; fireBrute(); return end
   if cl == "f" then fireBrute(); return end
   if k == "enter" or cl == "y" then
     bAuto = false; cDev = parseP(cardos.readLine(DB, cnd[bIdx]))
+    freeBr()
     if cDev then cDev.name = uniqName(cDev.b .. " " .. cDev.t); md = "CONFIRM" end
     return
   end
@@ -193,25 +232,34 @@ local function kBrute(k, c, cl)
 end
 
 local function kConf(k, c, cl)
-  if isBk(k, c) then bAuto = false; md = "BRUTE"; return end
+  if isBk(k, c) then bAuto = false; cDev = nil; if buildBr() then md = "PICK" else md = "SAVED" end; return end
   if cl == "p" then sendIr(cDev, cDev.pwr, "PWR")
   elseif cl == "m" then sendIr(cDev, cDev.mt, "MUTE")
   elseif isUp(k, c) then sendIr(cDev, cDev.vu, "VOL+")
   elseif isDn(k, c) then sendIr(cDev, cDev.vd, "VOL-")
   elseif cl == "r" or k == "enter" then
-    table.insert(sv, cDev); saveSv(); act = #sv; sSel = act
-    if cl == "r" then rnIdx, rnTxt, md = act, cDev.name, "RENAME"
-    else md = "REMOTE"; cardos.toast(cDev.name .. " saved!", 1300) end
+    appendSv(cDev)
+    table.insert(sv, {name=cDev.name, b=cDev.b, t=cDev.t, p=cDev.p})
+    act = #sv; sSel = act; remDev = cDev; cDev = nil; collectgarbage("collect")
+    if cl == "r" then rnIdx, rnTxt, md = act, remDev.name, "RENAME"
+    else md = "REMOTE"; cardos.toast(remDev.name .. " saved!", 1300) end
   end
 end
 
 local function kRen(k, c)
-  local prev = (act >= 1 and act <= #sv) and "REMOTE" or "SAVED"
+  local prev = (act >= 1 and act <= #sv and remDev) and "REMOTE" or "SAVED"
   if k == "esc" or (k == "char" and c == "`") then md = prev; return end
   if k == "back" then if #rnTxt > 0 then rnTxt = rnTxt:sub(1, #rnTxt - 1) end; return end
   if k == "enter" then
     local n = tr(rnTxt)
-    if n ~= "" and sv[rnIdx] then sv[rnIdx].name = n; saveSv(); cardos.toast("Saved!", 900) end
+    if n ~= "" and sv[rnIdx] then
+      local d = (act == rnIdx and remDev) or loadDev(rnIdx)
+      if d then
+        d.name = n; sv[rnIdx].name = n
+        if cardos.replaceLine then cardos.replaceLine(SV, rnIdx, fmtSvLine(d)) end
+        cardos.toast("Saved!", 900)
+      end
+    end
     md = prev; return
   end
   if k == "char" and c ~= "" and #rnTxt < 24 then
@@ -224,8 +272,8 @@ local RMAP = {p={"pwr","POWER"}, m={"mt","MUTE"}, ["+"]={"vu","VOL+"}, ["="]={"v
   i={"in_","INPUT"}, o={"mn","MENU"}, b={"bk","BACK"}, w={"up","UP"}, s={"dn","DOWN"}, a={"lt","LEFT"}, d={"rt","RIGHT"}}
 
 local function kRem(k, c, cl)
-  if isBk(k, c) then act = 0; md = "SAVED"; return end
-  local d = sv[act]; if not d then md = "SAVED"; return end
+  if isBk(k, c) then act = 0; remDev = nil; md = "SAVED"; collectgarbage("collect"); return end
+  local d = remDev; if not d then md = "SAVED"; return end
   if k == "enter" then sendIr(d, d.ok, "OK")
   elseif k == "back" then sendIr(d, d.bk, "BACK")
   elseif isUp(k, c) then sendIr(d, d.vu, "VOL+")
@@ -329,7 +377,7 @@ local function rRen()
 end
 
 local function rRem()
-  local d = sv[act]; if not d then return end
+  local d = remDev; if not d then return end
   cardos.statusBar(d.name)
   cardos.text(d.b .. " (" .. d.p .. ")", 8, 19, "dim", 1, "L")
   if cmdLbl ~= "" then
@@ -351,7 +399,7 @@ local IN = {SAVED=kSaved, PICK=kPick, BRUTE=kBrute, CONFIRM=kConf, RENAME=kRen, 
 local RD = {SAVED=rSaved, PICK=rPick, BRUTE=rBrute, CONFIRM=rConf, RENAME=rRen, REMOTE=rRem}
 
 function onEnter()
-  dbN = cardos.countLines(DB); idxB, idxT = {}, {}; loadSv()
+  dbN = cardos.countLines(DB); idxB, idxT, remDev = {}, {}, nil; loadSv()
   if sSel > #sv then sSel = math.max(1, #sv) end
   if sScr > math.max(1, #sv - 2) then sScr = math.max(1, #sv - 2) end
   flMs, cmdLbl, md = 0, "", "SAVED"

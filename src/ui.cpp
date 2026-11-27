@@ -77,10 +77,21 @@ int drawStatusIcons(M5Canvas& spr, bool showTime) {
         rx -= 10;
     }
 
-    // Calendar/Notification dot
-    if (g_settings.notifEnabled && g_sys.todayEventsCount > 0) {
-        spr.fillCircle(rx, 8, 2, acc);
-        rx -= 7;
+    // Notification unread count / calendar indicator
+    if (g_settings.notifEnabled && (g_sys.unreadNotifCount > 0 || g_sys.todayEventsCount > 0)) {
+        if (g_sys.unreadNotifCount > 0) {
+            char nb[6];
+            snprintf(nb, sizeof(nb), "!%u", (unsigned)min((int)g_sys.unreadNotifCount, 99));
+            int nw = strlen(nb) * 6 + 4;
+            rx -= nw;
+            spr.fillRoundRect(rx, 3, nw - 1, 10, 3, acc);
+            spr.setTextColor(th.bg);
+            spr.drawString(nb, rx + 2, 4);
+            rx -= 3;
+        } else {
+            spr.fillCircle(rx, 8, 2, acc);
+            rx -= 7;
+        }
     }
 
     // Device profile badge when Silent / Anonymous

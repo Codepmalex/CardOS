@@ -40,6 +40,11 @@ public:
         updateTodayEventCount();
     }
 
+    void onExit() override {
+        std::vector<CalEvent>().swap(m_events);
+        m_newTitle = String();
+    }
+
     void onInput(const InputEvent& ev) override {
         if (m_adding) {
             if (ev.code == CK_ESC || (ev.code == CK_CHAR && ev.ch == '`')) {

@@ -2,6 +2,7 @@
 #include "../config.h"
 #include "../state.h"
 #include "../storage.h"
+#include "../hardware.h"
 #include "../ui.h"
 #include "../app_installer.h"
 #include "../net_weather.h"
@@ -30,6 +31,7 @@ public:
 
     void onEnter() override {
         m_moveMode = false;
+        closeNotifPane();
         refreshTiles();
         m_scrollY = m_scrollRow * 37.0f;
         if (g_sys.focusSearchOnHome) {
@@ -40,6 +42,8 @@ public:
 
     void onExit() override {
         m_moveMode = false;
+        closeNotifPane();
+        std::vector<HomeTile>().swap(m_tiles);
         std::vector<SearchMatch>().swap(m_results);
         m_searchQuery = String();
         m_searchFocused = false;
@@ -62,6 +66,10 @@ public:
     }
 
     void onInput(const InputEvent& ev) override {
+        if (m_notifOpen) {
+            handleNotifInput(ev);
+            return;
+        }
         if (m_searchFocused) {
             handleSearchInput(ev);
             return;
@@ -84,7 +92,10 @@ public:
             return;
         }
 
-        if (isNavLeft(ev)) {
+        if (isNavBack(ev) || (ev.code == CK_CHAR && (ev.ch == '!' || ev.ch == '['))) {
+            openNotifPane();
+            return;
+        } else if (isNavLeft(ev)) {
             if (m_selIdx > 0) m_selIdx--;
         } else if (isNavRight(ev)) {
             if (m_selIdx < total - 1) m_selIdx++;
@@ -295,8 +306,15 @@ public:
 
             spr.setTextSize(1);
             if (m_searchQuery.isEmpty()) {
-                spr.setTextColor(th.textDim);
-                spr.drawString(m_searchFocused ? "Type to search apps/files..." : "Search (Tab)  [-/=] or [\\]Move", sbX + 18, sbY + 4);
+                if (g_sys.unreadNotifCount > 0) {
+                    spr.setTextColor(acc);
+                    char hb[42];
+                    snprintf(hb, sizeof(hb), "Search(Tab)  [!]Notifs(%u)", (unsigned)min((int)g_sys.unreadNotifCount, 99));
+                    spr.drawString(hb, sbX + 18, sbY + 4);
+                } else {
+                    spr.setTextColor(th.textDim);
+                    spr.drawString(m_searchFocused ? "Type to search ([Up]=Notifs)" : "Search(Tab) [!]Notifs [\\]Move", sbX + 18, sbY + 4);
+                }
             } else {
                 spr.setTextColor(th.text);
                 String dispQ = m_searchQuery;
@@ -306,8 +324,10 @@ public:
             }
         }
 
-        // --- Either Search Dropdown OR 4-Col App Grid (y: 60..133) ---
-        if (m_searchFocused && !m_searchQuery.isEmpty()) {
+        // --- Either Notifications Pane, Search Dropdown, OR 4-Col App Grid (y: 60..133) ---
+        if (m_notifOpen) {
+            renderNotifPane(spr);
+        } else if (m_searchFocused && !m_searchQuery.isEmpty()) {
             renderSearchResults(spr);
         } else {
             renderAppGrid(spr);
@@ -328,6 +348,13 @@ private:
     std::vector<SearchMatch> m_results;
     int m_resIdx = 0;
     int m_resScroll = 0;
+
+    bool m_notifOpen = false;
+    std::vector<NotifRecord> m_notifs;
+    int m_notifSel = 0;
+    int m_notifScroll = 0;
+    bool m_notifDetail = false;
+    int m_notifDetailScroll = 0;
 
     void refreshTiles() {
         m_tiles.clear();
@@ -476,6 +503,11 @@ private:
             return;
         }
         if (ev.code == CK_UP) {
+            if (m_searchQuery.isEmpty() && m_results.empty()) {
+                m_searchFocused = false;
+                openNotifPane();
+                return;
+            }
             if (m_resIdx > 0) {
                 m_resIdx--;
                 if (m_resIdx < m_resScroll) m_resScroll = m_resIdx;
@@ -622,6 +654,171 @@ private:
             spr.setTextDatum(TL_DATUM);
         }
         ui::drawScrollbar(spr, SCREEN_W - 5, y0, 72, (int)m_results.size(), 4, m_resScroll);
+    }
+
+    static const char* notifTag(uint8_t app) {
+        static const char* TAGS[NOTIF_APP_COUNT] = {"CAL", "WTH", "BAT", "SYS", "MNR", "UPD", "PHN"};
+        return (app < NOTIF_APP_COUNT) ? TAGS[app] : "SYS";
+    }
+
+    uint16_t notifColor(uint8_t app, const ThemePalette& th) const {
+        if (app == NOTIF_BATTERY) return th.err;
+        if (app == NOTIF_WEATHER || app == NOTIF_UPDATES) return activeAccent();
+        if (app == NOTIF_MINER) return th.warn;
+        if (app == NOTIF_CALENDAR || app == NOTIF_PHONE) return th.ok;
+        return th.accent2;
+    }
+
+    void openNotifPane() {
+        m_notifOpen = true;
+        m_notifDetail = false;
+        m_notifSel = 0;
+        m_notifScroll = 0;
+        m_notifDetailScroll = 0;
+        m_searchFocused = false;
+        g_sys.unreadNotifCount = 0;
+        m_notifs = loadNotificationsFromSd(30);
+    }
+
+    void closeNotifPane() {
+        m_notifOpen = false;
+        m_notifDetail = false;
+        std::vector<NotifRecord>().swap(m_notifs);
+    }
+
+    void handleNotifInput(const InputEvent& ev) {
+        if (m_notifDetail) {
+            if (isNavUp(ev) && m_notifDetailScroll > 0) m_notifDetailScroll--;
+            else if (isNavDown(ev)) m_notifDetailScroll++;
+            else if (isNavBack(ev) || ev.code == CK_ENTER ||
+                     (ev.code == CK_CHAR && (ev.ch == 'i' || ev.ch == 'I'))) {
+                m_notifDetail = false;
+            }
+            return;
+        }
+
+        if (isNavBack(ev) || (ev.code == CK_CHAR && (ev.ch == '!' || ev.ch == '['))) {
+            closeNotifPane();
+            return;
+        }
+
+        if (m_notifs.empty()) {
+            if (ev.code == CK_ENTER) closeNotifPane();
+            return;
+        }
+
+        if (isNavUp(ev) && m_notifSel > 0) {
+            m_notifSel--;
+            if (m_notifSel < m_notifScroll) m_notifScroll = m_notifSel;
+        } else if (isNavDown(ev) && m_notifSel < (int)m_notifs.size() - 1) {
+            m_notifSel++;
+            if (m_notifSel >= m_notifScroll + 3) m_notifScroll = m_notifSel - 2;
+        } else if (ev.code == CK_ENTER || (ev.code == CK_CHAR && (ev.ch == 'i' || ev.ch == 'I'))) {
+            m_notifDetail = true;
+            m_notifDetailScroll = 0;
+        } else if (ev.code == CK_DEL || ev.code == CK_BACKSPACE ||
+                   (ev.code == CK_CHAR && (ev.ch == 'd' || ev.ch == 'D'))) {
+            deleteNotificationOnSd(m_notifSel);
+            m_notifs.erase(m_notifs.begin() + m_notifSel);
+            if (m_notifSel >= (int)m_notifs.size()) m_notifSel = max(0, (int)m_notifs.size() - 1);
+            if (m_notifScroll > max(0, (int)m_notifs.size() - 3)) {
+                m_notifScroll = max(0, (int)m_notifs.size() - 3);
+            }
+            showToast("Dismissed", 800);
+        } else if (ev.code == CK_CHAR && (ev.ch == 'c' || ev.ch == 'C')) {
+            clearNotificationsOnSd();
+            std::vector<NotifRecord>().swap(m_notifs);
+            m_notifSel = 0;
+            m_notifScroll = 0;
+            showToast("Cleared all", 900);
+        }
+    }
+
+    void renderNotifPane(M5Canvas& spr) {
+        const auto& th = activeTheme();
+        uint16_t acc = activeAccent();
+
+        // Full-screen shade drawer below header (y: 38..134)
+        spr.fillRoundRect(4, 39, SCREEN_W - 8, SCREEN_H - 42, 6, th.surface);
+        spr.drawRoundRect(4, 39, SCREEN_W - 8, SCREEN_H - 42, 6, acc);
+
+        if (m_notifDetail && m_notifSel >= 0 && m_notifSel < (int)m_notifs.size()) {
+            const auto& nr = m_notifs[m_notifSel];
+            uint16_t nc = notifColor(nr.app, th);
+            spr.fillRoundRect(10, 44, 26, 11, 3, nc);
+            spr.setTextSize(1);
+            spr.setTextColor(th.bg);
+            spr.drawString(notifTag(nr.app), 14, 46);
+            spr.setTextColor(th.textDim);
+            spr.setTextDatum(TR_DATUM);
+            spr.drawString(nr.timeStr, SCREEN_W - 12, 46);
+            spr.setTextDatum(TL_DATUM);
+
+            int totalL = 0;
+            spr.setTextColor(th.text);
+            ui::drawWrappedText(spr, nr.msg, 12, 60, SCREEN_W - 28, 52, 10, m_notifDetailScroll, &totalL);
+            if (totalL > 5) {
+                m_notifDetailScroll = constrain(m_notifDetailScroll, 0, totalL - 5);
+                ui::drawScrollbar(spr, SCREEN_W - 12, 59, 50, totalL, 5, m_notifDetailScroll);
+            } else {
+                m_notifDetailScroll = 0;
+            }
+            spr.setTextColor(acc);
+            spr.drawString("[Up/Dn]Scroll   [Esc/Ent]Back", 12, 121);
+            return;
+        }
+
+        spr.setTextSize(1);
+        spr.setTextColor(acc);
+        char hdr[32];
+        snprintf(hdr, sizeof(hdr), "Notifications (%d)", (int)m_notifs.size());
+        spr.drawString(hdr, 10, 43);
+        spr.setTextColor(th.textDim);
+        spr.setTextDatum(TR_DATUM);
+        spr.drawString("[C]Clear [Esc]Close", SCREEN_W - 10, 43);
+        spr.setTextDatum(TL_DATUM);
+        spr.drawFastHLine(8, 54, SCREEN_W - 16, th.border);
+
+        if (m_notifs.empty()) {
+            spr.setTextDatum(MC_DATUM);
+            spr.setTextColor(th.textDim);
+            spr.drawString("No notifications saved on SD", SCREEN_W / 2, 86);
+            spr.setTextColor(acc);
+            spr.drawString("Press ESC or [!] to close", SCREEN_W / 2, 102);
+            spr.setTextDatum(TL_DATUM);
+            return;
+        }
+
+        int y0 = 57;
+        for (int r = 0; r < 3; ++r) {
+            int idx = m_notifScroll + r;
+            if (idx >= (int)m_notifs.size()) break;
+            const auto& nr = m_notifs[idx];
+            int y = y0 + r * 21;
+            bool sel = (idx == m_notifSel);
+
+            spr.fillRoundRect(9, y, SCREEN_W - 22, 19, 4, sel ? th.surface2 : th.bg);
+            spr.drawRoundRect(9, y, SCREEN_W - 22, 19, 4, sel ? acc : th.border);
+
+            uint16_t nc = notifColor(nr.app, th);
+            spr.fillRoundRect(13, y + 4, 24, 11, 2, nc);
+            spr.setTextColor(th.bg);
+            spr.drawString(notifTag(nr.app), 16, y + 6);
+
+            spr.setTextColor(th.textDim);
+            spr.setTextDatum(TR_DATUM);
+            spr.drawString(nr.timeStr, SCREEN_W - 17, y + 6);
+            spr.setTextDatum(TL_DATUM);
+
+            String msg = nr.msg;
+            int maxChars = 24;
+            if ((int)msg.length() > maxChars) msg = msg.substring(0, maxChars - 2) + "..";
+            spr.setTextColor(sel ? th.text : th.textDim);
+            spr.drawString(msg, 41, y + 6);
+        }
+        ui::drawScrollbar(spr, SCREEN_W - 10, y0, 62, (int)m_notifs.size(), 3, m_notifScroll);
+        spr.setTextColor(th.textDim);
+        spr.drawString("[Ent]Read  [D]Dismiss  [C]Clear", 10, 122);
     }
 };
 

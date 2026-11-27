@@ -1,5 +1,6 @@
 #include "hardware.h"
 #include "state.h"
+#include "storage.h"
 #include "net_weather.h"
 #include "ui.h"
 #include <M5Cardputer.h>
@@ -237,12 +238,220 @@ void playNotifyChime() {
     }
 }
 
+static constexpr const char* kNotifLogPath = "/cardos_notifs.tsv";
+static constexpr int kMaxNotifEntries = 40;
+
+struct PendingNotifSlot {
+    char timeStr[8];
+    uint8_t app;
+    char msg[60];
+};
+static portMUX_TYPE s_notifMux = portMUX_INITIALIZER_UNLOCKED;
+static PendingNotifSlot s_pendingNotifs[4];
+static int s_pendingNotifCount = 0;
+
+static void formatNotifTime(char* out, size_t outSz) {
+    struct tm tmInfo;
+    if (getSafeLocalTime(tmInfo)) {
+        int h = tmInfo.tm_hour;
+        if (!g_settings.use24h) {
+            int h12 = h % 12;
+            if (h12 == 0) h12 = 12;
+            snprintf(out, outSz, "%d:%02d%c", h12, tmInfo.tm_min, h >= 12 ? 'p' : 'a');
+        } else {
+            snprintf(out, outSz, "%02d:%02d", h, tmInfo.tm_min);
+        }
+    } else {
+        uint32_t m = (uint32_t)(millis() / 60000UL);
+        snprintf(out, outSz, "%lum", (unsigned long)m);
+    }
+}
+
+static void appendNotifRowCore1(const char* tStr, uint8_t app, const char* cleanMsg) {
+    if (!g_sys.sdMounted && !g_sys.spiffsMounted) return;
+    fs::FS& fs = activeFS();
+
+    // Count existing lines; trim oldest only when exceeding kMaxNotifEntries
+    int lines = 0;
+    if (fs.exists(kNotifLogPath)) {
+        File rf = fs.open(kNotifLogPath, FILE_READ);
+        if (rf) {
+            uint8_t buf[128];
+            bool hasCh = false;
+            while (rf.available()) {
+                int n = rf.read(buf, sizeof(buf));
+                if (n <= 0) break;
+                for (int i = 0; i < n; ++i) {
+                    if (buf[i] == '\n') {
+                        if (hasCh) { lines++; hasCh = false; }
+                    } else if (buf[i] != '\r') {
+                        hasCh = true;
+                    }
+                }
+            }
+            if (hasCh) lines++;
+            rf.close();
+        }
+    }
+
+    if (lines >= kMaxNotifEntries) {
+        String tmp = String(kNotifLogPath) + ".tmp";
+        fs.remove(tmp.c_str());
+        File in = fs.open(kNotifLogPath, FILE_READ);
+        File out = fs.open(tmp.c_str(), FILE_WRITE);
+        if (in && out) {
+            int skip = lines - kMaxNotifEntries + 1;
+            int idx = 0;
+            while (in.available()) {
+                String ln = in.readStringUntil('\n');
+                ln.trim();
+                if (ln.isEmpty()) continue;
+                if (idx >= skip) out.println(ln);
+                idx++;
+            }
+            out.printf("%s|%u|%s\n", tStr, (unsigned)app, cleanMsg);
+            in.close();
+            out.close();
+            fs.remove(kNotifLogPath);
+            fs.rename(tmp.c_str(), kNotifLogPath);
+            return;
+        }
+        if (in) in.close();
+        if (out) out.close();
+        fs.remove(tmp.c_str());
+    }
+
+    File wf = fs.open(kNotifLogPath, fs.exists(kNotifLogPath) ? FILE_APPEND : FILE_WRITE);
+    if (wf) {
+        wf.printf("%s|%u|%s\n", tStr, (unsigned)app, cleanMsg);
+        wf.close();
+    }
+}
+
+static void flushPendingNotifsToSd() {
+    PendingNotifSlot local[4];
+    int n = 0;
+    portENTER_CRITICAL(&s_notifMux);
+    n = s_pendingNotifCount;
+    for (int i = 0; i < n; ++i) local[i] = s_pendingNotifs[i];
+    s_pendingNotifCount = 0;
+    portEXIT_CRITICAL(&s_notifMux);
+
+    for (int i = 0; i < n; ++i) {
+        appendNotifRowCore1(local[i].timeStr, local[i].app, local[i].msg);
+    }
+}
+
+void logNotificationToSd(NotifApp app, const char* msg) {
+    char clean[60];
+    strlcpy(clean, (msg && msg[0]) ? msg : "Notification", sizeof(clean));
+    for (size_t i = 0; clean[i]; ++i) {
+        if (clean[i] == '|' || clean[i] == '\r' || clean[i] == '\n') clean[i] = ' ';
+    }
+    char tStr[8];
+    formatNotifTime(tStr, sizeof(tStr));
+    if (g_sys.unreadNotifCount < 99) g_sys.unreadNotifCount++;
+
+    if (xPortGetCoreID() == 1) {
+        appendNotifRowCore1(tStr, (uint8_t)app, clean);
+    } else {
+        portENTER_CRITICAL(&s_notifMux);
+        if (s_pendingNotifCount < 4) {
+            PendingNotifSlot& slot = s_pendingNotifs[s_pendingNotifCount++];
+            strlcpy(slot.timeStr, tStr, sizeof(slot.timeStr));
+            slot.app = (uint8_t)app;
+            strlcpy(slot.msg, clean, sizeof(slot.msg));
+        }
+        portEXIT_CRITICAL(&s_notifMux);
+    }
+}
+
+std::vector<NotifRecord> loadNotificationsFromSd(int maxItems) {
+    flushPendingNotifsToSd();
+    std::vector<NotifRecord> all;
+    if (!g_sys.sdMounted && !g_sys.spiffsMounted) return all;
+    fs::FS& fs = activeFS();
+    if (!fs.exists(kNotifLogPath)) return all;
+
+    File f = fs.open(kNotifLogPath, FILE_READ);
+    if (!f) return all;
+    while (f.available()) {
+        String ln = f.readStringUntil('\n');
+        ln.trim();
+        if (ln.isEmpty()) continue;
+        int p1 = ln.indexOf('|');
+        int p2 = (p1 >= 0) ? ln.indexOf('|', p1 + 1) : -1;
+        if (p1 > 0 && p2 > p1) {
+            NotifRecord r;
+            r.timeStr = ln.substring(0, p1);
+            r.app = (uint8_t)ln.substring(p1 + 1, p2).toInt();
+            r.msg = ln.substring(p2 + 1);
+            all.push_back(r);
+        }
+    }
+    f.close();
+
+    // Reverse to newest-first and cap to maxItems
+    std::vector<NotifRecord> rev;
+    int start = max(0, (int)all.size() - maxItems);
+    rev.reserve(all.size() - start);
+    for (int i = (int)all.size() - 1; i >= start; --i) {
+        rev.push_back(all[i]);
+    }
+    return rev;
+}
+
+void deleteNotificationOnSd(int newestFirstIdx) {
+    if (newestFirstIdx < 0 || (!g_sys.sdMounted && !g_sys.spiffsMounted)) return;
+    fs::FS& fs = activeFS();
+    if (!fs.exists(kNotifLogPath)) return;
+
+    std::vector<String> lines;
+    File in = fs.open(kNotifLogPath, FILE_READ);
+    if (!in) return;
+    while (in.available()) {
+        String ln = in.readStringUntil('\n');
+        ln.trim();
+        if (!ln.isEmpty()) lines.push_back(ln);
+    }
+    in.close();
+
+    int fileIdx = (int)lines.size() - 1 - newestFirstIdx;
+    if (fileIdx < 0 || fileIdx >= (int)lines.size()) return;
+    lines.erase(lines.begin() + fileIdx);
+
+    if (lines.empty()) {
+        fs.remove(kNotifLogPath);
+        return;
+    }
+    String tmp = String(kNotifLogPath) + ".tmp";
+    fs.remove(tmp.c_str());
+    File out = fs.open(tmp.c_str(), FILE_WRITE);
+    if (out) {
+        for (const auto& l : lines) out.println(l);
+        out.close();
+        fs.remove(kNotifLogPath);
+        fs.rename(tmp.c_str(), kNotifLogPath);
+    }
+}
+
+void clearNotificationsOnSd() {
+    portENTER_CRITICAL(&s_notifMux);
+    s_pendingNotifCount = 0;
+    portEXIT_CRITICAL(&s_notifMux);
+    g_sys.unreadNotifCount = 0;
+    if (g_sys.sdMounted || g_sys.spiffsMounted) {
+        activeFS().remove(kNotifLogPath);
+    }
+}
+
 void triggerNotification(NotifApp app, const char* msg) {
     if (g_sys.deepSleepMode) return;
     if (!g_settings.notifEnabled || app >= NOTIF_APP_COUNT) return;
     const auto& rule = g_settings.notifRules[app];
     if (!rule.enabled) return;
 
+    logNotificationToSd(app, msg);
     showToast(msg, 2800, false);
 
     // Anonymous mode suppresses both LEDs and sounds
@@ -508,6 +717,7 @@ void tickHardware(bool hadInputEvent) {
         }
     }
 
+    flushPendingNotifsToSd();
     updateLedEngine();
 }
 
