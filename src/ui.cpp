@@ -112,6 +112,20 @@ int drawStatusIcons(M5Canvas& spr, bool showTime) {
         rx -= 4;
     }
 
+    // Animated Loading / Busy Spinner (shown whenever network/app work is active)
+    if (g_sys.busyCount > 0 || g_sys.wifiConnecting || g_sys.weather.fetching || g_sys.minerPool.fetching) {
+        int sx = rx - 5;
+        int sy = 7;
+        spr.drawCircle(sx, sy, 3, th.border);
+        static const int8_t dx[8] = { 0,  2,  3,  2,  0, -2, -3, -2};
+        static const int8_t dy[8] = {-3, -2,  0,  2,  3,  2,  0, -2};
+        uint32_t ph = (millis() / 110) & 7;
+        uint32_t ph2 = (ph + 7) & 7;
+        spr.drawPixel(sx + dx[ph2], sy + dy[ph2], th.textDim);
+        spr.fillRect(sx + dx[ph], sy + dy[ph], 2, 2, acc);
+        rx -= 11;
+    }
+
     // Time (with AM/PM when 12h mode is configured)
     if (showTime) {
         struct tm tmInfo;
@@ -126,18 +140,6 @@ int drawStatusIcons(M5Canvas& spr, bool showTime) {
                 if (h == 0) h = 12;
                 snprintf(tStr, sizeof(tStr), "%d:%02d", h, tmInfo.tm_min);
                 rx -= 12;
-
-    // Android-style Bluetooth indicator next to Wi-Fi
-    if (g_sys.btEnabled) {
-        uint16_t bc = g_sys.btConnected ? th.ok : acc;
-        int bx = rx - 4;
-        spr.drawFastVLine(bx, 3, 10, bc);
-        spr.drawLine(bx, 3, bx + 3, 5, bc);
-        spr.drawLine(bx + 3, 5, bx - 2, 9, bc);
-        spr.drawLine(bx, 12, bx + 3, 10, bc);
-        spr.drawLine(bx + 3, 10, bx - 2, 6, bc);
-        rx -= 10;
-    }
                 spr.setTextColor(acc);
                 spr.drawString(ampm, rx, 4);
                 rx -= 1;

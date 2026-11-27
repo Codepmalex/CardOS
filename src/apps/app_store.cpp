@@ -244,6 +244,10 @@ private:
             httpCodeOut = -11;
             return false;
         }
+        struct StoreBusyGuard {
+            StoreBusyGuard() { g_sys.busyCount++; }
+            ~StoreBusyGuard() { if (g_sys.busyCount > 0) g_sys.busyCount--; }
+        } busyGuard;
 
         for (int attempt = 0; attempt < 2; ++attempt) {
             outBody = "";

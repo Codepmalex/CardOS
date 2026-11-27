@@ -294,11 +294,25 @@ namespace {
 
 static const char* kOtaBinPath = "/cardos_ota.bin";
 
+struct OtaBusyGuard {
+    OtaBusyGuard() { g_sys.busyCount++; }
+    ~OtaBusyGuard() { if (g_sys.busyCount > 0) g_sys.busyCount--; }
+};
+
 void drawOtaModal(const char* title, const char* subtitle, uint32_t done, uint32_t total) {
     auto& d = M5Cardputer.Display;
     int mx = 16, my = 24, mw = SCREEN_W - 32, mh = SCREEN_H - 48;
     d.fillRoundRect(mx, my, mw, mh, 6, 0x0841);
     d.drawRoundRect(mx, my, mw, mh, 6, 0x3DFB);
+
+    // Animated activity spinner so user can tell OTA is alive vs frozen
+    int sx = mx + mw - 12, sy = my + 11;
+    d.drawCircle(sx, sy, 4, 0x39E7);
+    static const int8_t sdx[8] = { 0,  3,  4,  3,  0, -3, -4, -3};
+    static const int8_t sdy[8] = {-4, -3,  0,  3,  4,  3,  0, -3};
+    uint32_t sph = (millis() / 120) & 7;
+    d.fillRect(sx + sdx[sph] - 1, sy + sdy[sph] - 1, 3, 3, 0x3DFB);
+
     d.setTextSize(1);
     d.setTextDatum(TC_DATUM);
     d.setTextColor(0xFFFF, 0x0841);
@@ -459,6 +473,7 @@ bool runGithubOsUpdateInteractive() {
         return false;
     }
 
+    OtaBusyGuard busyGuard;
     String baseUrl = deriveRepoBaseUrl();
     String verUrl = baseUrl + "/store/os_version.json";
     drawOtaModal("Software Update", "Checking GitHub...", 0, 0);
@@ -631,17 +646,32 @@ bool runGithubOsUpdateInteractive() {
     WiFiClientSecure dlClient;
     dlClient.setInsecure();
     dlClient.setHandshakeTimeout(12);
+    dlClient.setTimeout(15);
     HTTPClient dlHttp;
+    dlHttp.useHTTP10(true);
     dlHttp.setReuse(false);
     dlHttp.setTimeout(15000);
     dlHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-    if (!dlHttp.begin(dlClient, binUrl) || dlHttp.GET() != 200) {
+    if (!dlHttp.begin(dlClient, binUrl)) {
+        if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
+        out.close();
+        SD.remove(kOtaBinPath);
+        drawOtaModal("Software Update", "Download init failed!", 0, 0);
+        delay(1700);
+        return false;
+    }
+    dlHttp.setUserAgent("CardOS");
+    dlHttp.addHeader("Accept-Encoding", "identity");
+    int dlCode = dlHttp.GET();
+    if (dlCode != 200) {
         dlHttp.end();
         if (g_tlsMutex) xSemaphoreGive(g_tlsMutex);
         out.close();
         SD.remove(kOtaBinPath);
-        drawOtaModal("Software Update", "Download failed!", 0, 0);
-        delay(1700);
+        char eb[36];
+        snprintf(eb, sizeof(eb), "Download failed (%d)", dlCode);
+        drawOtaModal("Software Update", eb, 0, 0);
+        delay(1800);
         return false;
     }
 
@@ -660,25 +690,33 @@ bool runGithubOsUpdateInteractive() {
     }
     uint32_t downloaded = 0;
     uint32_t lastUi = 0;
+    uint32_t lastUiMs = millis();
     uint32_t lastDataMs = millis();
     uint8_t firstByte = 0;
-    while ((dlHttp.connected() || stream->available() > 0) && (contentLen <= 0 || (int)downloaded < contentLen)) {
-        size_t avail = stream->available();
-        if (avail > 0) {
-            if (avail > kDlBufSz) avail = kDlBufSz;
-            int rd = stream->readBytes(dlBuf, avail);
-            if (rd > 0) {
-                if (downloaded == 0) firstByte = dlBuf[0];
-                out.write(dlBuf, (size_t)rd);
-                downloaded += (uint32_t)rd;
-                lastDataMs = millis();
-                if (downloaded - lastUi >= 24576) {
-                    lastUi = downloaded;
-                    drawOtaModal("CardOS Updater 1/2", "Downloading firmware...", downloaded, contentLen > 0 ? (uint32_t)contentLen : downloaded + 65536);
-                }
+    while (contentLen <= 0 || (int)downloaded < contentLen) {
+        int rd = stream ? stream->read(dlBuf, kDlBufSz) : -1;
+        if (rd > 0) {
+            if (downloaded == 0) firstByte = dlBuf[0];
+            out.write(dlBuf, (size_t)rd);
+            downloaded += (uint32_t)rd;
+            lastDataMs = millis();
+            uint32_t now = millis();
+            if (downloaded - lastUi >= 24576 || now - lastUiMs >= 250) {
+                lastUi = downloaded;
+                lastUiMs = now;
+                drawOtaModal("CardOS Updater 1/2", "Downloading firmware...", downloaded, contentLen > 0 ? (uint32_t)contentLen : downloaded + 65536);
             }
         } else {
+            if (!dlHttp.connected() && (!stream || stream->available() <= 0)) {
+                if (downloaded > 0 && (contentLen <= 0 || (int)downloaded >= contentLen)) break;
+                if (millis() - lastDataMs > 2500) break;
+            }
             if (millis() - lastDataMs > 15000) break;
+            uint32_t now = millis();
+            if (now - lastUiMs >= 160) {
+                lastUiMs = now;
+                drawOtaModal("CardOS Updater 1/2", "Downloading firmware...", downloaded, contentLen > 0 ? (uint32_t)contentLen : downloaded + 65536);
+            }
             delay(5);
         }
         yield();
@@ -696,7 +734,7 @@ bool runGithubOsUpdateInteractive() {
                  contentLen > 0 ? (contentLen / 1024) : -1,
                  (unsigned)firstByte);
         drawOtaModal("Software Update", errBuf, 0, 0);
-        delay(2200);
+        delay(3000);
         return false;
     }
 

@@ -193,6 +193,7 @@ struct SystemState {
 
     bool wifiConnected = false;
     bool wifiConnecting = false;
+    volatile uint8_t busyCount = 0;
     char wifiStatus[32] = "Off";
     char wifiIp[20] = "0.0.0.0";
     int wifiRssi = 0;

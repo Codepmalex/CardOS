@@ -998,7 +998,9 @@ private:
                     m_btNamePrompt = true;
                 } else if (idx == 2 && d > 0) {
                     showToast("Scanning BLE (3s)...", 3000);
+                    g_sys.busyCount++;
                     m_btPeers = btScanNearby(3);
+                    if (g_sys.busyCount > 0) g_sys.busyCount--;
                     m_btSel = 0;
                     m_btScroll = 0;
                     m_btScanning = true;
