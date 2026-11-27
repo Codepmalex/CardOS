@@ -92,7 +92,7 @@ public:
             return;
         }
 
-        if (isNavBack(ev) || (ev.code == CK_CHAR && (ev.ch == '!' || ev.ch == '['))) {
+        if (isNavBack(ev) || (ev.code == CK_CHAR && (ev.ch == '!' || ev.ch == '1' || ev.ch == '['))) {
             openNotifPane();
             return;
         } else if (isNavLeft(ev)) {
@@ -697,7 +697,7 @@ private:
             return;
         }
 
-        if (isNavBack(ev) || (ev.code == CK_CHAR && (ev.ch == '!' || ev.ch == '['))) {
+        if (isNavBack(ev) || (ev.code == CK_CHAR && (ev.ch == '!' || ev.ch == '1' || ev.ch == '['))) {
             closeNotifPane();
             return;
         }

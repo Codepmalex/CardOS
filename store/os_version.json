@@ -1,1 +1,1 @@
-{"version":"2.9","notes":"Fixed early-boot TASK_WATCHDOG_BARKED BSOD (15s TWDT timeout, deferred BLE auto-enable, boot animation safety timeout & descriptive boot-stage BSOD breadcrumbs).","bin_url":"https://raw.githubusercontent.com/Codepmalex/CardOS/main/firmware/cardos_latest.bin"}
+{"version":"2.10","notes":"Fixed Home [!/1] key to open Notifications Pane directly without holding Shift.","bin_url":"https://raw.githubusercontent.com/Codepmalex/CardOS/main/firmware/cardos_latest.bin"}
