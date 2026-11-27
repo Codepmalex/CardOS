@@ -7,22 +7,39 @@
 
 static SPIClass s_sdSPI(HSPI);
 
+bool remountSdCard() {
+    SD.end();
+    s_sdSPI.end();
+    pinMode(SD_CS_PIN, OUTPUT);
+    digitalWrite(SD_CS_PIN, HIGH);
+    delay(20);
+    s_sdSPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+
+    static const uint32_t kSdFreqs[3] = {20000000, 10000000, 4000000};
+    for (int i = 0; i < 3; ++i) {
+        if (SD.begin(SD_CS_PIN, s_sdSPI, kSdFreqs[i])) {
+            uint8_t cardType = SD.cardType();
+            if (cardType != CARD_NONE) {
+                g_sys.sdMounted = true;
+                refreshSdStats();
+                return true;
+            }
+            SD.end();
+        }
+        delay(35);
+    }
+    g_sys.sdMounted = false;
+    g_sys.sdTotalMB = 0;
+    g_sys.sdFreeMB = 0;
+    return false;
+}
+
 bool initStorage() {
     if (SPIFFS.begin(true)) {
         g_sys.spiffsMounted = true;
     }
 
-    pinMode(SD_CS_PIN, OUTPUT);
-    digitalWrite(SD_CS_PIN, HIGH);
-    s_sdSPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
-
-    if (SD.begin(SD_CS_PIN, s_sdSPI, 25000000)) {
-        uint8_t cardType = SD.cardType();
-        if (cardType != CARD_NONE) {
-            g_sys.sdMounted = true;
-            refreshSdStats();
-        }
-    }
+    remountSdCard();
 
     ensureDir("/apps");
     ensureDir("/notes");

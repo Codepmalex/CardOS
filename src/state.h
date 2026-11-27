@@ -230,6 +230,7 @@ struct SystemState {
     uint8_t ledNotifyPattern = 0;
     int todayEventsCount = 0;
     int notesCount = 0;
+    int pendingTasksCount = 0;
     bool lowBattNotified = false;
     bool weatherNotified = false;
     bool rainNotified = false;

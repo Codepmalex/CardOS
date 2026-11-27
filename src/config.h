@@ -6,7 +6,7 @@
 constexpr int SCREEN_W = 240;
 constexpr int SCREEN_H = 135;
 constexpr int STATUS_BAR_H = 16;
-constexpr const char* CARDOS_VERSION = "2.10";
+constexpr const char* CARDOS_VERSION = "3.0";
 
 // Cardputer ADV Hardware Pins
 constexpr int SD_SCK_PIN  = 40;
@@ -42,6 +42,8 @@ enum AppId : uint8_t {
     APP_RECORDER,
     APP_APOS,
     APP_TERMINAL,
+    APP_TIMER,
+    APP_TASKS,
     APP_LUA_RUNNER,
     APP_COUNT
 };
@@ -95,6 +97,7 @@ enum HomeWidget : uint8_t {
     WIDGET_SNAKE,
     WIDGET_FLAPPY,
     WIDGET_MUSIC,
+    WIDGET_TASKS,
     WIDGET_NONE,
     WIDGET_COUNT
 };
@@ -232,6 +235,6 @@ static const char* LED_COLOR_NAMES[7] = {
 };
 
 static const char* HOME_WIDGET_NAMES[WIDGET_COUNT] = {
-    "Weather", "Miner", "SysInfo", "Calendar", "Notes", "Snake", "Flappy", "Music", "Off"
+    "Weather", "Miner", "SysInfo", "Calendar", "Notes", "Snake", "Flappy", "Music", "Tasks", "Off"
 };
 

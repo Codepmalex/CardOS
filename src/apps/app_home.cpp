@@ -3,6 +3,7 @@
 #include "../state.h"
 #include "../storage.h"
 #include "../hardware.h"
+#include "../bt_manager.h"
 #include "../ui.h"
 #include "../app_installer.h"
 #include "../net_weather.h"
@@ -31,6 +32,7 @@ public:
 
     void onEnter() override {
         m_moveMode = false;
+        m_ctrlOpen = false;
         closeNotifPane();
         refreshTiles();
         m_scrollY = m_scrollRow * 37.0f;
@@ -42,6 +44,7 @@ public:
 
     void onExit() override {
         m_moveMode = false;
+        m_ctrlOpen = false;
         closeNotifPane();
         std::vector<HomeTile>().swap(m_tiles);
         std::vector<SearchMatch>().swap(m_results);
@@ -70,6 +73,10 @@ public:
             handleNotifInput(ev);
             return;
         }
+        if (m_ctrlOpen) {
+            handleCtrlInput(ev);
+            return;
+        }
         if (m_searchFocused) {
             handleSearchInput(ev);
             return;
@@ -94,6 +101,11 @@ public:
 
         if (isNavBack(ev) || (ev.code == CK_CHAR && (ev.ch == '!' || ev.ch == '1' || ev.ch == '['))) {
             openNotifPane();
+            return;
+        } else if (ev.code == CK_CHAR && ev.ch == ']') {
+            m_ctrlOpen = true;
+            m_ctrlSel = 0;
+            m_ctrlScroll = 0;
             return;
         } else if (isNavLeft(ev)) {
             if (m_selIdx > 0) m_selIdx--;
@@ -286,6 +298,16 @@ public:
                 spr.setTextDatum(TL_DATUM);
                 break;
             }
+            case WIDGET_TASKS: {
+                char tb[28];
+                if (g_sys.pendingTasksCount > 0) snprintf(tb, sizeof(tb), "Tasks: %d left", g_sys.pendingTasksCount);
+                else snprintf(tb, sizeof(tb), "Tasks: All done");
+                spr.setTextColor(g_sys.pendingTasksCount > 0 ? acc : th.ok);
+                spr.setTextDatum(TR_DATUM);
+                spr.drawString(tb, wxEnd, 24);
+                spr.setTextDatum(TL_DATUM);
+                break;
+            }
             case WIDGET_NONE:
             default:
                 break;
@@ -313,7 +335,7 @@ public:
                     spr.drawString(hb, sbX + 18, sbY + 4);
                 } else {
                     spr.setTextColor(th.textDim);
-                    spr.drawString(m_searchFocused ? "Type to search ([Up]=Notifs)" : "Search(Tab) [!]Notifs [\\]Move", sbX + 18, sbY + 4);
+                    spr.drawString(m_searchFocused ? "Type to search ([Up]=Notifs)" : "Tab:Search !:Notif ]:Ctrl \\:Move", sbX + 18, sbY + 4);
                 }
             } else {
                 spr.setTextColor(th.text);
@@ -324,9 +346,11 @@ public:
             }
         }
 
-        // --- Either Notifications Pane, Search Dropdown, OR 4-Col App Grid (y: 60..133) ---
+        // --- Either Notifications Pane, Control Center, Search Dropdown, OR 4-Col App Grid (y: 60..133) ---
         if (m_notifOpen) {
             renderNotifPane(spr);
+        } else if (m_ctrlOpen) {
+            renderCtrlCenter(spr);
         } else if (m_searchFocused && !m_searchQuery.isEmpty()) {
             renderSearchResults(spr);
         } else {
@@ -355,6 +379,10 @@ private:
     int m_notifScroll = 0;
     bool m_notifDetail = false;
     int m_notifDetailScroll = 0;
+
+    bool m_ctrlOpen = false;
+    int m_ctrlSel = 0;
+    int m_ctrlScroll = 0;
 
     void refreshTiles() {
         m_tiles.clear();
@@ -819,6 +847,136 @@ private:
         ui::drawScrollbar(spr, SCREEN_W - 10, y0, 62, (int)m_notifs.size(), 3, m_notifScroll);
         spr.setTextColor(th.textDim);
         spr.drawString("[Ent]Read  [D]Dismiss  [C]Clear", 10, 122);
+    }
+
+    static constexpr int kCtrlCount = 9;
+
+    void handleCtrlInput(const InputEvent& ev) {
+        if (isNavBack(ev) || (ev.code == CK_CHAR && (ev.ch == ']' || ev.ch == '\\'))) {
+            m_ctrlOpen = false;
+            return;
+        }
+        if (isNavUp(ev) && m_ctrlSel > 0) {
+            m_ctrlSel--;
+            if (m_ctrlSel < m_ctrlScroll) m_ctrlScroll = m_ctrlSel;
+            return;
+        }
+        if (isNavDown(ev) && m_ctrlSel < kCtrlCount - 1) {
+            m_ctrlSel++;
+            if (m_ctrlSel >= m_ctrlScroll + 4) m_ctrlScroll = m_ctrlSel - 3;
+            return;
+        }
+
+        int dir = isNavLeft(ev) ? -1 : ((isNavRight(ev) || ev.code == CK_ENTER || (ev.code == CK_CHAR && ev.ch == ' ')) ? 1 : 0);
+        if (dir == 0) return;
+
+        switch (m_ctrlSel) {
+            case 0:
+                g_settings.brightness = (uint8_t)constrain((int)g_settings.brightness + dir * 25, 30, 255);
+                applyBrightness(g_settings.brightness);
+                saveSettings();
+                break;
+            case 1:
+                g_settings.mediaVolume = (uint8_t)constrain((int)g_settings.mediaVolume + dir * 20, 0, 255);
+                saveSettings();
+                break;
+            case 2:
+                g_settings.deviceProfile = (uint8_t)((g_settings.deviceProfile + PROF_COUNT + dir) % PROF_COUNT);
+                updateLedEngine();
+                saveSettings();
+                break;
+            case 3:
+                if (g_sys.wifiConnected || g_sys.wifiConnecting) {
+                    requestWifiDisconnect();
+                    showToast("Wi-Fi Off", 1000);
+                } else {
+                    requestWifiConnect();
+                    showToast("Wi-Fi Connecting...", 1200);
+                }
+                break;
+            case 4:
+                btSetEnabled(!g_settings.btEnabled);
+                break;
+            case 5:
+                g_settings.lowPowerMode = !g_settings.lowPowerMode;
+                applyPowerProfile();
+                saveSettings();
+                break;
+            case 6:
+                m_ctrlOpen = false;
+                setFlashlight(true);
+                break;
+            case 7:
+                m_ctrlOpen = false;
+                enterScreensaver();
+                break;
+            case 8: {
+                bool ok = remountSdCard();
+                if (ok) {
+                    char sb[28];
+                    snprintf(sb, sizeof(sb), "SD OK (%luMB free)", (unsigned long)g_sys.sdFreeMB);
+                    showToast(sb, 1400);
+                } else {
+                    showToast("SD card not detected", 1400);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    String ctrlValueText(int idx) const {
+        switch (idx) {
+            case 0: return String((g_settings.brightness * 100) / 255) + "%";
+            case 1: return String((g_settings.mediaVolume * 100) / 255) + "%";
+            case 2: return PROFILE_NAMES[g_settings.deviceProfile % PROF_COUNT];
+            case 3: return g_sys.wifiConnected ? "ON" : (g_sys.wifiConnecting ? "..." : "OFF");
+            case 4: return g_sys.btConnected ? "Paired" : (g_sys.btEnabled ? "ON" : "OFF");
+            case 5: return g_settings.lowPowerMode ? "ON" : "OFF";
+            case 6: return "Launch";
+            case 7: return "Start";
+            case 8: return g_sys.sdMounted ? (String(g_sys.sdFreeMB) + "MB") : "Retry";
+            default: return "";
+        }
+    }
+
+    void renderCtrlCenter(M5Canvas& spr) {
+        const auto& th = activeTheme();
+        uint16_t acc = activeAccent();
+        static const char* CTRL_LABELS[kCtrlCount] = {
+            "Brightness", "Media Vol", "Mode", "Wi-Fi", "Bluetooth", "ECO Mode", "Flashlight", "Screensaver", "Remount SD"
+        };
+
+        spr.fillRoundRect(4, 39, SCREEN_W - 8, SCREEN_H - 42, 6, th.surface);
+        spr.drawRoundRect(4, 39, SCREEN_W - 8, SCREEN_H - 42, 6, acc);
+
+        spr.setTextSize(1);
+        spr.setTextColor(acc);
+        spr.drawString("Quick Control Center", 10, 43);
+        spr.setTextColor(th.textDim);
+        spr.setTextDatum(TR_DATUM);
+        spr.drawString("[</>/Ent]Change [Esc]]Close", SCREEN_W - 10, 43);
+        spr.setTextDatum(TL_DATUM);
+        spr.drawFastHLine(8, 53, SCREEN_W - 16, th.border);
+
+        int y0 = 56;
+        for (int r = 0; r < 4; ++r) {
+            int idx = m_ctrlScroll + r;
+            if (idx >= kCtrlCount) break;
+            int y = y0 + r * 19;
+            bool sel = (idx == m_ctrlSel);
+            spr.fillRoundRect(9, y, SCREEN_W - 22, 17, 4, sel ? th.surface2 : th.bg);
+            spr.drawRoundRect(9, y, SCREEN_W - 22, 17, 4, sel ? acc : th.border);
+            spr.setTextColor(sel ? th.text : th.textDim);
+            spr.drawString(CTRL_LABELS[idx], 15, y + 5);
+
+            spr.setTextDatum(TR_DATUM);
+            spr.setTextColor(sel ? acc : th.accent2);
+            spr.drawString(ctrlValueText(idx), SCREEN_W - 17, y + 5);
+            spr.setTextDatum(TL_DATUM);
+        }
+        ui::drawScrollbar(spr, SCREEN_W - 10, y0, 74, kCtrlCount, 4, m_ctrlScroll);
     }
 };
 

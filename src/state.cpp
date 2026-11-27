@@ -43,7 +43,9 @@ static const AppKeyPair APP_KEYS[] = {
     {APP_MUSIC,     "music"},
     {APP_RECORDER,  "voice"},
     {APP_APOS,      "apos"},
-    {APP_TERMINAL,  "shell"}
+    {APP_TERMINAL,  "shell"},
+    {APP_TIMER,     "timer"},
+    {APP_TASKS,     "tasks"}
 };
 static constexpr int APP_KEYS_COUNT = sizeof(APP_KEYS) / sizeof(APP_KEYS[0]);
 
@@ -219,6 +221,7 @@ bool isWidgetAvailable(uint8_t widgetId) {
         case WIDGET_NOTES:
         case WIDGET_SNAKE:
         case WIDGET_MUSIC:
+        case WIDGET_TASKS:
         case WIDGET_NONE:
             return true;
         default:

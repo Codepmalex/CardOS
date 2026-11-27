@@ -458,6 +458,7 @@ bool checkAndApplyPendingOsUpdate() {
     if (!running || !app0) return false;
     if (running->address == app0->address) return false; // Already running app0
 
+    if (!g_sys.sdMounted) remountSdCard();
     return flashOtaBinToApp0(activeFS(), app0, "CardOS Updater 2/2");
 }
 
@@ -466,6 +467,9 @@ bool runGithubOsUpdateInteractive() {
         drawOtaModal("Software Update", "Connect Wi-Fi first!", 0, 0);
         delay(1600);
         return false;
+    }
+    if (!g_sys.sdMounted) {
+        remountSdCard();
     }
     if (!g_sys.sdMounted) {
         drawOtaModal("Software Update", "SD card required for OTA", 0, 0);

@@ -25,6 +25,7 @@ struct SearchMatch {
 };
 
 bool initStorage();
+bool remountSdCard();
 void refreshSdStats();
 fs::FS& activeFS();
 const char* activeFSName();

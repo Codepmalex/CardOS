@@ -22,12 +22,15 @@ App* createMusicApp();
 App* createRecorderApp();
 App* createApOsApp();
 App* createTerminalApp();
+App* createTimerApp();
+App* createTasksApp();
 App* createLuaRunnerApp();
 
-// Background services for Music & ApOS
+// Background services for Music, ApOS & Timer
 void tickMusicPlayer();
 void stopMusicPlayback();
 void tickApOS();
+void tickTimerService();
 
 // Launch a downloaded Store Lua script app (/store/<appId>.lua)
 void launchLuaApp(const String& appId);

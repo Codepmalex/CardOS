@@ -136,6 +136,8 @@ bool openAppByName(const String& name) {
     if (q == "voice" || q == "rec" || q == "recorder" || q == "mic") { switchApp(APP_RECORDER); return true; }
     if (q == "apos" || q == "ap" || q == "portal" || q == "hotspot") { switchApp(APP_APOS); return true; }
     if (q == "shell" || q == "term" || q == "terminal" || q == "cli" || q == "cmd") { switchApp(APP_TERMINAL); return true; }
+    if (q == "timer" || q == "stopwatch" || q == "countdown" || q == "pomodoro") { switchApp(APP_TIMER); return true; }
+    if (q == "tasks" || q == "todo" || q == "checklist") { switchApp(APP_TASKS); return true; }
     return false;
 }
 
@@ -257,13 +259,17 @@ void setup() {
     s_apps[APP_RECORDER]   = createRecorderApp();
     s_apps[APP_APOS]       = createApOsApp();
     s_apps[APP_TERMINAL]   = createTerminalApp();
+    s_apps[APP_TIMER]      = createTimerApp();
+    s_apps[APP_TASKS]      = createTasksApp();
     s_apps[APP_LUA_RUNNER] = createLuaRunnerApp();
 
-    // Pre-initialize Calendar & Notes counts for widgets/badges
+    // Pre-initialize Calendar, Notes & Tasks counts for widgets/badges
     s_apps[APP_CALENDAR]->onEnter();
     s_apps[APP_CALENDAR]->onExit();
     s_apps[APP_NOTES]->onEnter();
     s_apps[APP_NOTES]->onExit();
+    s_apps[APP_TASKS]->onEnter();
+    s_apps[APP_TASKS]->onExit();
 
     bsodRecordHeartbeat("Boot: Home");
     s_uiReady = true;
@@ -341,6 +347,7 @@ void loop() {
     tickMusicPlayer();
     tickBluetooth();
     tickApOS();
+    tickTimerService();
 
     static uint32_t s_lastCrumbMs = 0;
     if (millis() - s_lastCrumbMs >= 1000) {

@@ -1,1 +1,1 @@
-{"version":"2.10","notes":"Fixed Home [!/1] key to open Notifications Pane directly without holding Shift.","bin_url":"https://raw.githubusercontent.com/Codepmalex/CardOS/main/firmware/cardos_latest.bin"}
+{"version":"3.0","notes":"Added 3 big features: Timer app (Stopwatch/Countdown/Pomodoro), SD Tasks checklist app + Widget, and Home Quick Control Center (]); Also includes SD auto-remount fix (20/10/4 MHz).","bin_url":"https://raw.githubusercontent.com/Codepmalex/CardOS/main/firmware/cardos_latest.bin"}

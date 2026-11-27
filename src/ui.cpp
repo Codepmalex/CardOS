@@ -408,6 +408,23 @@ void drawAppIcon(M5Canvas& spr, int cx, int cy, AppId id, uint16_t color, bool i
             spr.drawFastHLine(cx + 1, cy + 2, 4, color);
             break;
         }
+        case APP_TIMER: {
+            // Stopwatch crown + dial hands
+            spr.drawFastHLine(cx - 2, cy - 8, 5, activeAccent());
+            spr.drawCircle(cx, cy + 1, 6, color);
+            spr.drawLine(cx, cy + 1, cx, cy - 3, rgb565(251, 191, 36));
+            spr.drawLine(cx, cy + 1, cx + 3, cy + 2, activeAccent());
+            break;
+        }
+        case APP_TASKS: {
+            // Checklist card with checkmarks
+            spr.drawRoundRect(cx - 6, cy - 7, 12, 14, 2, color);
+            spr.drawLine(cx - 3, cy - 3, cx - 2, cy - 1, rgb565(52, 211, 153));
+            spr.drawLine(cx - 2, cy - 1, cx, cy - 4, rgb565(52, 211, 153));
+            spr.drawFastHLine(cx + 2, cy - 3, 3, activeAccent());
+            spr.drawFastHLine(cx - 3, cy + 2, 8, color);
+            break;
+        }
         case APP_LUA_RUNNER:
             // Downloaded app tile with script / spark emblem
             spr.drawRoundRect(cx - 6, cy - 6, 12, 12, 3, color);
@@ -653,6 +670,14 @@ void drawScreensaverFrame(M5Canvas& spr) {
                 snprintf(wb, sizeof(wb), "Notes: %d saved", g_sys.notesCount);
                 wTxt = wb;
                 wCol = rgb565(251, 191, 36);
+                break;
+            }
+            case WIDGET_TASKS: {
+                char wb[28];
+                if (g_sys.pendingTasksCount > 0) snprintf(wb, sizeof(wb), "Tasks: %d left", g_sys.pendingTasksCount);
+                else snprintf(wb, sizeof(wb), "Tasks: All done");
+                wTxt = wb;
+                wCol = rgb565(52, 211, 153);
                 break;
             }
             case WIDGET_SNAKE: {
